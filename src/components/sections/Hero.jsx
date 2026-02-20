@@ -1,7 +1,15 @@
 import React from 'react';
 import Reveal from '../common/Reveal.jsx';
+import { buildWhatsAppUrl } from '../../utils/whatsapp.js';
 
 export default function Hero() {
+  const phone = import.meta.env.VITE_WHATSAPP_NUMBER;
+
+  const waHref = buildWhatsAppUrl({
+    phone,
+    message: 'Olá! Gostaria de solicitar um orçamento.',
+  });
+
   return (
     <header className="relative h-screen flex items-center justify-center overflow-hidden">
       <div className="absolute inset-0 z-0">
@@ -28,12 +36,25 @@ export default function Hero() {
         </Reveal>
 
         <Reveal delay="400ms">
-          <a
-            href="#projetos"
-            className="inline-block border border-white px-8 py-3 uppercase tracking-widest text-sm hover:bg-white hover:text-stone-900 transition-all duration-300"
-          >
-            Ver Projetos
-          </a>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <a
+              href="#projetos"
+              className="inline-flex justify-center border border-white px-8 py-3 uppercase tracking-widest text-sm hover:bg-white hover:text-stone-900 transition-all duration-300"
+            >
+              Ver Projetos
+            </a>
+
+            {phone && (
+              <a
+                href={waHref}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex justify-center bg-white text-stone-900 px-8 py-3 uppercase tracking-widest text-sm hover:bg-stone-100 transition-all duration-300"
+              >
+                Solicitar Orçamento
+              </a>
+            )}
+          </div>
         </Reveal>
       </div>
 

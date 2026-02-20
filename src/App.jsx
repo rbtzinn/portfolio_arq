@@ -4,21 +4,22 @@ import Navbar from './components/layout/Navbar.jsx';
 import Hero from './components/sections/Hero.jsx';
 import About from './components/sections/About.jsx';
 import Portfolio from './components/sections/Portfolio.jsx';
+// import Process from './components/sections/Process.jsx';
 import Services from './components/sections/Services.jsx';
+// import Testimonials from './components/sections/Testimonials.jsx';
 import ContactFooter from './components/sections/ContactFooter.jsx';
+import FloatingWhatsApp from './components/common/FloatingWhatsApp.jsx';
 
 export default function App() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
 
-  // Detecta scroll da página (para navbar)
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Trava o scroll quando o menu mobile está aberto
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? 'hidden' : 'auto';
   }, [isMenuOpen]);
@@ -33,14 +34,14 @@ export default function App() {
       />
 
       <Hero />
-
       <About />
-
       <Portfolio />
-
+      {/* <Process /> */}
       <Services />
-
+      {/* <Testimonials /> */}
       <ContactFooter />
+
+      <FloatingWhatsApp />
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { slugify } from '../../utils/slug.js';
 
 function InfoRow({ label, value }) {
   if (!value) return null;
@@ -14,17 +16,21 @@ function InfoRow({ label, value }) {
 export default function ProjectModal({ open, project, onClose }) {
   const images = useMemo(() => {
     const arr = project?.images ?? [];
-    // fallback: se não tiver images, tenta usar coverUrl
     if (arr.length) return arr;
     if (project?.coverUrl) return [project.coverUrl];
     return [];
   }, [project]);
 
   const [activeIndex, setActiveIndex] = useState(0);
+  const [imgReady, setImgReady] = useState(false);
 
   useEffect(() => {
     if (open) setActiveIndex(0);
   }, [open, project?.id]);
+
+  useEffect(() => {
+    setImgReady(false);
+  }, [activeIndex]);
 
   const prev = () => {
     if (!images.length) return;
@@ -77,9 +83,7 @@ export default function ProjectModal({ open, project, onClose }) {
 
       {/* Modal container */}
       <div className="relative h-full w-full flex items-center justify-center p-4 sm:p-6 lg:p-8 pointer-events-none">
-        {/* max-w-6xl dá mais espaço geral que o 5xl */}
         <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl overflow-hidden animate-[popIn_.25s_ease-out] pointer-events-auto flex flex-col max-h-full">
-          
           {/* Header */}
           <div className="flex items-start justify-between gap-6 p-6 lg:px-8 lg:py-6 border-b border-stone-100 shrink-0">
             <div>
@@ -102,19 +106,26 @@ export default function ProjectModal({ open, project, onClose }) {
           </div>
 
           {/* Body */}
-          {/* Largura da sidebar aumentada para 380px (antes era 260px) */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] overflow-hidden">
-            
             {/* Imagem principal */}
-            <div className="relative bg-stone-100 flex items-center justify-center">
+            <div className="relative bg-stone-100">
               {activeSrc ? (
-                <img
-                  src={activeSrc}
-                  alt={`${project.title} - imagem ${activeIndex + 1}`}
-                  className="w-full h-[40vh] lg:h-[72vh] object-cover"
-                />
+                <>
+                  <img
+                    key={activeSrc}
+                    src={activeSrc}
+                    alt={`${project.title} - imagem ${activeIndex + 1}`}
+                    onLoad={() => setImgReady(true)}
+                    className={`w-full h-[50vh] sm:h-[55vh] lg:h-[72vh] object-cover transition-opacity duration-300 ${
+                      imgReady ? 'opacity-100' : 'opacity-0'
+                    }`}
+                  />
+                  {!imgReady && (
+                    <div className="absolute inset-0 animate-pulse bg-stone-200" />
+                  )}
+                </>
               ) : (
-                <div className="w-full h-[40vh] lg:h-[72vh] flex items-center justify-center text-stone-500">
+                <div className="w-full h-[60vh] lg:h-[72vh] flex items-center justify-center text-stone-500">
                   Sem imagem
                 </div>
               )}
@@ -147,10 +158,8 @@ export default function ProjectModal({ open, project, onClose }) {
               )}
             </div>
 
-            {/* Sidebar com Scroll Independente */}
-            {/* h-[72vh] + overflow-y-auto garante que não estoure o modal */}
+            {/* Sidebar */}
             <div className="p-6 lg:p-8 border-t lg:border-t-0 lg:border-l border-stone-100 bg-white h-auto lg:h-[72vh] overflow-y-auto custom-scrollbar">
-              
               {/* Miniaturas */}
               {!!images.length && (
                 <div className="mb-10">
@@ -166,7 +175,9 @@ export default function ProjectModal({ open, project, onClose }) {
                           key={`${src}-${idx}`}
                           onClick={() => setActiveIndex(idx)}
                           className={`relative overflow-hidden rounded-xl aspect-[4/3] bg-stone-200 transition-all duration-300 ${
-                            active ? 'ring-2 ring-stone-900 ring-offset-2 scale-[1.02]' : 'hover:scale-[1.02] hover:shadow-md'
+                            active
+                              ? 'ring-2 ring-stone-900 ring-offset-2 scale-[1.02]'
+                              : 'hover:scale-[1.02] hover:shadow-md'
                           }`}
                           type="button"
                           aria-label={`Ver miniatura ${idx + 1}`}
@@ -189,7 +200,7 @@ export default function ProjectModal({ open, project, onClose }) {
                 </div>
               )}
 
-              {/* Infos editáveis via planilha */}
+              {/* Infos */}
               <div>
                 <p className="text-xs tracking-widest uppercase text-stone-400 mb-4 font-medium">
                   Sobre o projeto
@@ -208,14 +219,11 @@ export default function ProjectModal({ open, project, onClose }) {
                 <div className="mt-8 rounded-2xl border border-stone-100 bg-stone-50/80 p-5 shadow-sm">
                   <InfoRow label="Local" value={project.location} />
                   <InfoRow label="Ano" value={project.year} />
-                  <InfoRow
-                    label="Área"
-                    value={project.areaM2 ? `${project.areaM2} m²` : ''}
-                  />
+                  <InfoRow label="Área" value={project.areaM2 ? `${project.areaM2} m²` : ''} />
                   <InfoRow label="Cliente" value={project.client} />
                 </div>
 
-                {!!(project.services?.length) && (
+                {!!project.services?.length && (
                   <div className="mt-8">
                     <p className="text-xs tracking-widest uppercase text-stone-400 mb-4 font-medium">
                       Serviços
@@ -233,8 +241,38 @@ export default function ProjectModal({ open, project, onClose }) {
                   </div>
                 )}
 
+                {/* ✅ CTAs (melhor lugar: após serviços) */}
+                <div className="mt-8">
+                  <Link
+                    to={`/projetos/${slugify(project.title)}`}
+                    onClick={onClose}
+                    className="inline-flex w-full items-center justify-center rounded-xl bg-stone-900 text-white px-6 py-3 uppercase tracking-widest text-xs hover:bg-stone-800 transition-colors shadow-sm"
+                  >
+                    Ver projeto completo
+                  </Link>
+
+                  <a
+                    href="#contato"
+                    onClick={onClose}
+                    className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-800 px-6 py-3 uppercase tracking-widest text-xs hover:border-stone-900 transition-colors"
+                  >
+                    Solicitar orçamento
+                  </a>
+                </div>
+
                 <p className="mt-10 pt-6 border-t border-stone-100 text-stone-400 text-xs font-light leading-relaxed">
-                  Dica: use <kbd className="font-sans px-1 py-0.5 bg-stone-100 rounded text-stone-500">ESC</kbd> para fechar e as setas <kbd className="font-sans px-1 py-0.5 bg-stone-100 rounded text-stone-500">←</kbd> <kbd className="font-sans px-1 py-0.5 bg-stone-100 rounded text-stone-500">→</kbd> para navegar.
+                  Dica: use{' '}
+                  <kbd className="font-sans px-1 py-0.5 bg-stone-100 rounded text-stone-500">
+                    ESC
+                  </kbd>{' '}
+                  para fechar e as setas{' '}
+                  <kbd className="font-sans px-1 py-0.5 bg-stone-100 rounded text-stone-500">
+                    ←
+                  </kbd>{' '}
+                  <kbd className="font-sans px-1 py-0.5 bg-stone-100 rounded text-stone-500">
+                    →
+                  </kbd>{' '}
+                  para navegar.
                 </p>
               </div>
             </div>
@@ -249,20 +287,15 @@ export default function ProjectModal({ open, project, onClose }) {
           from { opacity: 0; transform: translateY(10px) scale(.98); }
           to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        
-        /* Scrollbar elegante para a barra lateral */
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb {
-          background-color: #e7e5e4; /* stone-200 */
+          background-color: #e7e5e4;
           border-radius: 10px;
         }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background-color: #d6d3d1; /* stone-300 */
+          background-color: #d6d3d1;
         }
       `}</style>
     </div>
