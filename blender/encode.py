@@ -51,7 +51,7 @@ def encode(src, dst_base):
 
 
 meta = json.load(open(os.path.join(HERE, "build", "meta.json")))
-manifest = {k: meta[k] for k in ("frames", "seqEnd", "total", "built", "labels", "final")}
+manifest = {k: meta[k] for k in ("frames", "seqEnd", "total", "built", "labels", "final", "bom")}
 manifest["variants"] = {}
 jobs = []
 for variant in ("desktop", "mobile"):
