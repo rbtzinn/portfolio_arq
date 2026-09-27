@@ -14,18 +14,19 @@ const cap = (s) => s[0].toUpperCase() + s.slice(1)
 // Capítulos: [entra, sai]. A opacidade e o deslocamento vêm do progresso suavizado.
 const CHAPTERS = [
   { id: 'void', a: -1, b: 0.085, step: '01' },
-  { id: 'stem', a: 0.115, b: 0.285, step: '02' },
+  { id: 'stem', a: 0.15, b: 0.285, step: '02' },
   { id: 'bloom', a: 0.315, b: 0.47, step: '03' },
   { id: 'reveal', a: 0.5, b: 0.6, step: '04' },
   { id: 'garden', a: 0.62, b: 0.83, step: '04' },
   { id: 'bouquet', a: 0.885, b: 2, step: '05' },
 ]
+// p = destino do clique; from = a partir de quando o item fica ativo
 const NAV = [
-  { label: 'Solto', p: 0 },
-  { label: 'Caule', p: 0.2 },
-  { label: 'Flor', p: 0.43 },
-  { label: 'Jardim', p: 0.56 },
-  { label: 'Buquê', p: 0.95 },
+  { label: 'Solto', p: 0, from: 0 },
+  { label: 'Caule', p: 0.2, from: 0.1 },
+  { label: 'Flor', p: 0.43, from: 0.3 },
+  { label: 'Jardim', p: 0.6, from: 0.49 },
+  { label: 'Buquê', p: 0.95, from: 0.86 },
 ]
 
 const pad = (n, l = 3) => String(Math.max(0, Math.round(n))).padStart(l, '0')
@@ -44,6 +45,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
   const navRefs = useRef([])
   const [sound, setSound] = useState(false)
   const [ready, setReady] = useState(false)
+  const [failed, setFailed] = useState(false)
   state.labelEls = state.labelEls || []
 
   // carregamento: o contador acompanha os frames que chegam da rede
@@ -57,12 +59,15 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       if (loaderCount.current && state.seq) loaderCount.current.textContent = pad(state.seq.manifest.built.at(-1), 4)
       setTimeout(() => setReady(true), 250)
     }
+    const onError = () => setFailed(true)
     if (state.ready) done()
     window.addEventListener('jardim:progress', onProgress)
     window.addEventListener('jardim:ready', done)
+    window.addEventListener('jardim:error', onError)
     return () => {
       window.removeEventListener('jardim:progress', onProgress)
       window.removeEventListener('jardim:ready', done)
+      window.removeEventListener('jardim:error', onError)
     }
   }, [])
 
@@ -80,7 +85,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         el.style.transform = `translate3d(0, ${((1 - fin) * 40 - fout * 40).toFixed(1)}px, 0)`
         el.style.visibility = o < 0.01 ? 'hidden' : 'visible'
         el.classList.toggle('is-on', o > 0.6)
-        if (c.id !== 'garden') scrim = Math.max(scrim, o)
+        scrim = Math.max(scrim, c.id === 'garden' ? o * 0.6 : o)
       }
       document.documentElement.style.setProperty('--scrim', scrim.toFixed(3))
       const cur = [...CHAPTERS].reverse().find((c) => P >= c.a - 0.02) || CHAPTERS[0]
@@ -91,11 +96,13 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       if (total.current) total.current.textContent = pad(tot, 4)
       if (bar.current) bar.current.style.transform = `scaleY(${clamp(state.progress).toFixed(4)})`
       if (hint.current) hint.current.style.opacity = (1 - smooth(invLerp(0.01, 0.05, P))).toFixed(3)
-      document.documentElement.style.setProperty('--light', smooth(invLerp(0.085, 0.2, P)).toFixed(3))
+      const light = smooth(invLerp(0.085, 0.2, P))
+      document.documentElement.style.setProperty('--light', light.toFixed(3))
+      document.documentElement.style.setProperty('--tl', smooth(invLerp(0.42, 0.62, light)).toFixed(3))
       navRefs.current.forEach((el, i) => {
         if (!el) return
-        const next = NAV[i + 1]?.p ?? 2
-        el.classList.toggle('is-active', P >= NAV[i].p - 0.04 && P < next - 0.04)
+        const next = NAV[i + 1]?.from ?? 2
+        el.classList.toggle('is-active', P >= NAV[i].from && P < next)
       })
       if (bqBtn.current) {
         const o = smooth(invLerp(0.9, 0.93, P))
@@ -131,8 +138,24 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
     <div className={`ui ${ready ? 'is-ready' : ''}`}>
       <div ref={loader} className="loader" aria-hidden={ready}>
         <div className="loader__box">
-          <span className="mono">Separando peças</span>
-          <span ref={loaderCount} className="loader__n">0000</span>
+          {failed ? (
+            <>
+              <span className="mono">Não foi possível carregar as peças</span>
+              <button className="btn btn--light" onClick={() => location.reload()}>
+                Tentar de novo
+              </button>
+              <a className="loader__alt mono" href="/">
+                Ir para o site completo
+              </a>
+            </>
+          ) : (
+            <>
+              <span className="mono">Separando peças</span>
+              <span ref={loaderCount} className="loader__n">
+                0000
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -280,7 +303,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
           <i />
           <i />
         </span>
-        Som {sound ? 'ligado' : 'desligado'}
+        Som <span className="sound__state">{sound ? 'ligado' : 'desligado'}</span>
       </button>
     </div>
   )

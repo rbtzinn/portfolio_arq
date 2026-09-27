@@ -25,3 +25,5 @@ Thumbs.db
 # assets do Blender (intermediários)
 blender/build
 blender/renders
+tests/.shots
+tests/.shots-prod

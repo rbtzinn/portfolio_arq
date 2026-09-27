@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "assets:export": "node blender/export.mjs 240",
     "assets:render": "bash blender/render_all.sh",
-    "assets:encode": "python blender/encode.py"
+    "assets:encode": "python blender/encode.py",
+    "test:layout": "node tests/layout-audit.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

@@ -47,4 +47,9 @@ são geradas em código, renderizadas no Blender e servidas como sequências AVI
 - `src/jardim/ui/` interface estilo manual de instruções
 - `src/jardim/lib/` scroll (GSAP ScrollTrigger + Lenis), entrada, áudio sintetizado
 
-`/jardim/?p=0.5` pula para um ponto da narrativa.
+`/jardim/?p=0.5` pula para um ponto da narrativa; `?fmt=webp` força o formato das imagens.
+
+**Auditoria de layout** — `npm run test:layout [baseURL]` (com `npm run dev` ou `vite preview`
+rodando): 8 viewports (1920×1080 até celular deitado) × 10 pontos da narrativa, procurando
+overflow, texto cortado, sobreposição de blocos, contraste sobre o frame real e erros; mais
+testes de girar o aparelho, falha de rede e foco por teclado. Screenshots em `tests/.shots/`.

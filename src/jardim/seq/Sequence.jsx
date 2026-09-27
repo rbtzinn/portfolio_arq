@@ -19,41 +19,80 @@ export default function Sequence({ onManifest }) {
     const onPointer = () => (pointerSeen = true)
     window.addEventListener('pointermove', onPointer, { once: true })
 
-    const init = async () => {
-      const forced = new URLSearchParams(location.search).get('fmt')
-      const [manifest, ext] = await Promise.all([
-        fetch('/seq/manifest.json').then((r) => r.json()),
-        forced === 'webp' || forced === 'avif' ? forced : detectFormat(),
-      ])
-      if (!alive) return
+    let manifest = null
+    let ext = 'webp'
+    let readySent = false
+    const pickVariant = () => {
       const portrait = window.innerWidth / window.innerHeight < 0.9
-      const variant = portrait && manifest.variants.mobile ? 'mobile' : 'desktop'
-      player = new SequencePlayer(canvas.current, manifest, variant, ext)
-      player.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
-      state.seq = { manifest, variant, player }
-      state.totalPieces = manifest.built[manifest.built.length - 1] + (state.bouquetCount || 0)
-      onManifest?.(manifest, variant)
-
-      // pronto quando o primeiro passo grosso (1 a cada 16) chegou
-      const coarse = Math.ceil(player.src.main.length / 16) + Math.ceil(player.src.lit.length / 4) + 1
-      let readySent = false
-      player.load((n, total) => {
-        window.dispatchEvent(new CustomEvent('jardim:progress', { detail: n / total }))
-        if (!readySent && n >= coarse) {
-          readySent = true
-          // decodifica o primeiro frame antes de revelar
-          const check = () => (player.nearest('main', 0) ? ready() : setTimeout(check, 30))
-          check()
-        }
-      }).then(() => window.dispatchEvent(new Event('jardim:loaded')))
+      return portrait && manifest.variants.mobile ? 'mobile' : 'desktop'
     }
     const ready = () => {
+      if (readySent) return
+      readySent = true
       state.ready = true
       window.dispatchEvent(new Event('jardim:ready'))
     }
+    const fail = () => window.dispatchEvent(new Event('jardim:error'))
+
+    // cria (ou recria, ao girar o aparelho) o player da variante certa
+    const start = (variant) => {
+      player?.dispose()
+      const pl = new SequencePlayer(canvas.current, manifest, variant, ext)
+      player = pl
+      pl.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+      state.seq = { manifest, variant, player: pl }
+      state.totalPieces = manifest.built[manifest.built.length - 1] + (state.bouquetCount || 0)
+      onManifest?.(manifest, variant)
+
+      // pronto quando o primeiro passo grosso (1 a cada 16) chegou e o frame 0 decodificou
+      const coarse = Math.ceil(pl.src.main.length / 16) + Math.ceil(pl.src.lit.length / 4) + 1
+      const whenDecoded = (tries = 0) => {
+        if (!alive || pl !== player) return
+        if (pl.nearest('main', 0)) ready()
+        else if (tries < 300) setTimeout(() => whenDecoded(tries + 1), 30)
+        else fail()
+      }
+      let armed = false
+      pl.load((n, total) => {
+        if (pl !== player) return
+        window.dispatchEvent(new CustomEvent('jardim:progress', { detail: n / total }))
+        if (!armed && n >= coarse) {
+          armed = true
+          whenDecoded()
+        }
+      }).then(() => {
+        if (pl !== player) return
+        // rede instável: nem o passo grosso completou, mas algo chegou
+        if (!armed) pl.blobs.main.size ? whenDecoded() : fail()
+        window.dispatchEvent(new Event('jardim:loaded'))
+      })
+    }
+
+    const init = async () => {
+      try {
+        const forced = new URLSearchParams(location.search).get('fmt')
+        const [m, e] = await Promise.all([
+          fetch('/seq/manifest.json').then((r) => {
+            if (!r.ok) throw new Error('manifest ' + r.status)
+            return r.json()
+          }),
+          forced === 'webp' || forced === 'avif' ? forced : detectFormat(),
+        ])
+        if (!alive) return
+        manifest = m
+        ext = e
+        start(pickVariant())
+      } catch {
+        fail()
+      }
+    }
     init()
 
-    const onResize = () => player?.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+    const onResize = () => {
+      if (!player) return
+      if (pickVariant() !== state.seq.variant) start(pickVariant())
+      else player.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+    }
     window.addEventListener('resize', onResize)
 
     const tick = () => {
@@ -112,14 +151,29 @@ export default function Sequence({ onManifest }) {
       const k = fs - f0
       const els = state.labelEls || []
       const fadeEnd = 1 - smooth(invLerp(0.82, 0.86, P))
+      const headerH = W <= 820 ? 96 : 84
       for (let i = 0; i < els.length; i++) {
         const el = els[i]
         const a = L[f0]?.[i]
         const b = L[f1]?.[i]
         if (!el || !a || !b) continue
+        const vis = lerp(a[2], b[2], k) * fadeEnd
+        if (vis <= 0.001) {
+          if (el.style.opacity !== '0') el.style.opacity = '0'
+          el.style.pointerEvents = 'none'
+          continue
+        }
         const [x, y] = player.project(lerp(a[0], b[0], k), lerp(a[1], b[1], k))
-        const edge = clamp(Math.min(x, W - x) / 120) * clamp(Math.min(y, H - y) / 100)
-        const o = lerp(a[2], b[2], k) * edge * fadeEnd
+        // cartão à esquerda da âncora na metade direita da tela
+        const flip = x > W * 0.58
+        if (el.classList.contains('tag--left') !== flip) el.classList.toggle('tag--left', flip)
+        const card = el.firstElementChild?.nextElementSibling?.nextElementSibling
+        const cl = x + (card ? card.offsetLeft : 48)
+        const ct = y + (card ? card.offsetTop : -64)
+        const cw = card ? card.offsetWidth : 240
+        // some antes de encostar nas bordas ou no cabeçalho
+        const room = Math.min(cl - 12, W - 12 - (cl + cw), ct - headerH, H - 24 - y)
+        const o = vis * clamp(room / 60)
         el.style.opacity = o.toFixed(3)
         el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`
         el.style.pointerEvents = o > 0.5 ? 'auto' : 'none'
