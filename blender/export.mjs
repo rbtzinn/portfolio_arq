@@ -9,7 +9,7 @@ import * as THREE from 'three'
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { buildGeometries, baseStud, PLATE } from '../src/jardim/bricks/geometry.js'
-import { buildHeroWorld, poseHero, buildGardenWorld, poseGarden, cameraAt, SEQ_END } from '../src/jardim/bricks/world.js'
+import { buildHeroWorld, poseHero, buildGardenWorld, poseGarden, cameraAt, SEQ_END, buildBouquetParts, bouquetWorldMatrix, TURN_FRAMES } from '../src/jardim/bricks/world.js'
 import { smooth, invLerp } from '../src/jardim/store.js'
 
 const OUT = path.resolve(path.dirname(new URL(import.meta.url).pathname), 'build')
@@ -88,6 +88,11 @@ function heroBOM() {
   }
 }
 
+// buquê: só vaso + flores (o pedestal já está no jardim); oculto na sequência principal
+const bouquet = buildBouquetParts({ withPedestal: false })
+bouquet.forEach((p) => addObj(p, p.type))
+const pedestalIds = garden.props.filter((p) => p.type === 'brick2x4' && p.t0 === 0.74).map((p) => p.oid)
+
 /* ---------------- frames ---------------- */
 const NO = objects.length
 const xf = new Float32Array(N * NO * 16)
@@ -109,6 +114,7 @@ for (let f = 0; f < N; f++) {
     rowMajor(tmp.multiplyMatrices(ZUP, m), xf, o)
   }
   const built = poseHero(hero, P, emit) + poseGarden(garden, P, emit)
+  for (const p of bouquet) emit(p, null)
 
   const fr = { P, built, light: smooth(invLerp(0.085, 0.2, P)), garden: smooth(invLerp(0.5, 0.62, P)), cam: {}, labels: {} }
   for (const [variant, aspect] of Object.entries(cams)) {
@@ -132,6 +138,59 @@ for (let f = 0; f < N; f++) {
   frames.push(fr)
 }
 
+/* ---------------- turntable do buquê ---------------- */
+const NB = bouquet.length
+const turn = new Float32Array(TURN_FRAMES * NB * 16)
+for (let k = 0; k < TURN_FRAMES; k++) {
+  const a = (k / TURN_FRAMES) * Math.PI * 2
+  bouquet.forEach((p, i) => rowMajor(tmp.multiplyMatrices(ZUP, bouquetWorldMatrix(p, a)), turn, (k * NB + i) * 16))
+}
+// recorte: projeção do buquê (todos os ângulos) + sombra no chão, com folga
+const RES = { desktop: [1600, 1000], mobile: [720, 1280] }
+const crop = {}
+const pt = new THREE.Vector3()
+const m4 = new THREE.Matrix4()
+for (const [variant, aspect] of Object.entries(cams)) {
+  const c = cameraAt(SEQ_END, aspect)
+  camObj.fov = c.fov
+  camObj.aspect = aspect
+  camObj.position.copy(c.pos)
+  camObj.lookAt(c.tgt)
+  camObj.updateMatrixWorld()
+  camObj.updateProjectionMatrix()
+  let x0 = 1
+  let y0 = 1
+  let x1 = 0
+  let y1 = 0
+  const addPoint = (v) => {
+    pt.copy(v).project(camObj)
+    const x = (pt.x + 1) / 2
+    const y = (1 - pt.y) / 2
+    x0 = Math.min(x0, x)
+    x1 = Math.max(x1, x)
+    y0 = Math.min(y0, y)
+    y1 = Math.max(y1, y)
+  }
+  for (let k = 0; k < 24; k++) {
+    const a = (k / 24) * Math.PI * 2
+    for (const p of bouquet) {
+      bouquetWorldMatrix(p, a, m4)
+      const o = new THREE.Vector3().setFromMatrixPosition(m4)
+      for (const d of [[3, 0, 0], [-3, 0, 0], [0, 3, 0], [0, -1, 0], [0, 0, 3], [0, 0, -3]]) {
+        const q = o.clone().add(new THREE.Vector3(...d))
+        addPoint(q)
+        // sombra do sol (vindo de 14, 30, 12) no chão
+        addPoint(new THREE.Vector3(q.x - (q.y * 14) / 30, 0, q.z - (q.y * 12) / 30))
+      }
+    }
+  }
+  const [W, H] = RES[variant]
+  const px = (v, n) => Math.round(Math.min(1, Math.max(0, v)) * n)
+  const pad = 0.02
+  crop[variant] = [px(x0 - pad, W), px(y0 - pad, H), px(x1 + pad, W), px(y1 + pad, H)]
+}
+fs.writeFileSync(path.join(OUT, 'turn.bin'), Buffer.from(turn.buffer))
+
 // dados para o site: peças montadas por frame, etiquetas e câmera final (compositing do buquê)
 const last = frames[N - 1]
 fs.writeFileSync(
@@ -141,6 +200,7 @@ fs.writeFileSync(
     seqEnd: SEQ_END,
     total: hero.count + garden.count,
     bom: heroBOM(),
+    turn: { frames: TURN_FRAMES, crop, res: RES },
     built: frames.map((f) => f.built),
     labels: { desktop: frames.map((f) => f.labels.desktop), mobile: frames.map((f) => f.labels.mobile) },
     final: {
@@ -156,6 +216,14 @@ if (META_ONLY) {
 fs.writeFileSync(path.join(OUT, 'xforms.bin'), Buffer.from(xf.buffer))
 fs.writeFileSync(
   path.join(OUT, 'scene.json'),
-  JSON.stringify({ frames: N, objects, frameData: frames, seqEnd: SEQ_END, heroCount: hero.count, gardenCount: garden.count }),
+  JSON.stringify({
+    frames: N,
+    objects,
+    frameData: frames,
+    seqEnd: SEQ_END,
+    heroCount: hero.count,
+    gardenCount: garden.count,
+    turn: { frames: TURN_FRAMES, ids: bouquet.map((p) => p.oid), pedestal: pedestalIds, crop, res: RES },
+  }),
 )
 console.log(`objetos ${NO}, frames ${N}, tris únicos ${tris}, xforms ${(xf.byteLength / 1e6).toFixed(1)} MB`)

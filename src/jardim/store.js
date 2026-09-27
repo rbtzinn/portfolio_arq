@@ -13,9 +13,12 @@ export const state = {
   bouquet: {
     mode: 'idle', // idle | exploded | returning
     changedAt: 0,
+    idleAt: 0,
     spin: 0,
     spinVel: 0,
     dragging: false,
+    turnAlpha: 0, // 1 = turntable renderizado no Blender; 0 = peças em Three.js
+    threeReady: false,
   },
   ready: false,
 }
@@ -25,6 +28,10 @@ export function toggleBouquet() {
   const b = state.bouquet
   b.request = b.mode === 'idle' ? 'explode' : 'return'
 }
+
+// Ângulo do buquê: giro contínuo + arraste + um toque do scroll. Usado pelo turntable
+// (frames do Blender) e pelas peças em Three.js — os dois precisam concordar.
+export const bouquetAngle = (P) => state.bouquet.spin + P * 3
 
 // Capítulos da narrativa em faixas de progresso.
 export const CH = {

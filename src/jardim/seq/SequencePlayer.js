@@ -33,18 +33,18 @@ export class SequencePlayer {
     this.v = manifest.variants[variant]
     this.ext = ext
     this.base = base
-    this.src = { main: this.v.main.frames, lit: this.v.lit?.frames || [] }
-    this.blobs = { main: new Map(), lit: new Map() }
+    this.src = { main: this.v.main.frames, lit: this.v.lit?.frames || [], turn: this.v.turn?.frames || [] }
+    this.blobs = { main: new Map(), lit: new Map(), turn: new Map() }
     this.bitmaps = new Map() // "modo:i" → ImageBitmap (LRU)
     this.decoding = new Set()
-    this.maxBitmaps = 26
+    this.maxBitmaps = 34
     this.iw = this.v.size[0]
     this.ih = this.v.size[1]
     this.fit = { s: 1, x: 0, y: 0, w: 0, h: 0 }
     this.off = document.createElement('canvas')
     this.offCtx = this.off.getContext('2d')
     this.loaded = 0
-    this.total = this.src.main.length + this.src.lit.length
+    this.total = this.src.main.length + this.src.lit.length + this.src.turn.length
     this.aborted = false
   }
 
@@ -71,6 +71,9 @@ export class SequencePlayer {
       if (step === 4) for (let i = 0; i < this.src.lit.length; i++) push('lit', i)
     }
     push('main', n - 1)
+    // turntable do buquê por último, também do grosso ao fino
+    const nt = this.src.turn.length
+    for (const step of [8, 4, 2, 1]) for (let i = 0; i < nt; i += step) push('turn', i)
     return order
   }
 
@@ -224,6 +227,56 @@ export class SequencePlayer {
         ctx.globalAlpha = 1
       }
     }
+  }
+
+  // Turntable do buquê: k = índice fracionário do ângulo (0..n, dá a volta).
+  // Desenha no retângulo de recorte exportado, com crossfade entre ângulos vizinhos.
+  drawTurn(k, alpha = 1) {
+    const n = this.src.turn.length
+    if (!n || alpha <= 0.001) return false
+    const i0 = ((Math.floor(k) % n) + n) % n
+    const i1 = (i0 + 1) % n
+    const t = k - Math.floor(k)
+    const A = this.decode('turn', i0) || this.nearestTurn(i0)
+    if (!A) return false
+    const B = t > 0.02 ? this.decode('turn', i1) : null
+    for (let d = 1; d <= 4; d++) this.decode('turn', (i0 + d) % n)
+    const [x0, y0, x1, y1] = this.v.turn.crop
+    const [rw, rh] = this.v.turn.res
+    const f = this.fit
+    const r = this.ratio
+    const X = (f.x + (x0 / rw) * f.w) * r
+    const Y = (f.y + (y0 / rh) * f.h) * r
+    const Wd = ((x1 - x0) / rw) * f.w * r
+    const Hd = ((y1 - y0) / rh) * f.h * r
+    const ctx = this.ctx
+    ctx.globalAlpha = alpha
+    ctx.drawImage(A, X, Y, Wd, Hd)
+    if (B && B !== A) {
+      // os dois ângulos têm alfa: mistura A→B sem "vazar" o fundo no meio do crossfade
+      ctx.globalAlpha = alpha * t
+      ctx.drawImage(B, X, Y, Wd, Hd)
+    }
+    ctx.globalAlpha = 1
+    return true
+  }
+
+  nearestTurn(i) {
+    const n = this.src.turn.length
+    for (let d = 1; d < n / 2; d++) {
+      for (const j of [(i - d + n) % n, (i + d) % n]) {
+        const b = this.bitmaps.get('turn:' + j)
+        if (b) return b
+        if (d < 3) this.decode('turn', j)
+      }
+    }
+    return null
+  }
+
+  // turntable utilizável: existe e o passo grosso (1 a cada 8 ângulos) já chegou
+  turnReady() {
+    const n = this.src.turn.length
+    return n > 0 && this.blobs.turn.size >= Math.ceil(n / 8)
   }
 
   // coordenada normalizada do quadro renderizado → px de CSS na tela

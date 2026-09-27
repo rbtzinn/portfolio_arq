@@ -138,7 +138,7 @@ for (const vp of VIEWPORTS) {
   page.on('pageerror', (e) => errors.push('JS: ' + e.message))
   page.on('console', (m) => m.type() === 'error' && !/fonts|ERR_CERT|net::ERR_TOO_MANY/.test(m.text()) && errors.push('console: ' + m.text()))
   page.on('response', (r) => r.status() >= 400 && !r.url().includes('favicon') && errors.push(`HTTP ${r.status()} ${r.url()}`))
-  await page.goto(`${BASE}/jardim/`, { waitUntil: 'load' })
+  await page.goto(`${BASE}/jardim/?gate=0`, { waitUntil: 'load' })
   await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
   await page.waitForTimeout(1200)
   for (const p of POINTS) {
@@ -162,7 +162,7 @@ if (!process.env.SKIP_ROBUST) {
     const page = await ctx.newPage()
     const errs = []
     page.on('pageerror', (e) => errs.push('JS: ' + e.message))
-    await page.goto(`${BASE}/jardim/`)
+    await page.goto(`${BASE}/jardim/?gate=0`)
     await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
     const v1 = await page.evaluate(() => window.__state.seq.variant)
     await page.setViewportSize({ width: 844, height: 390 })
@@ -185,7 +185,7 @@ if (!process.env.SKIP_ROBUST) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ignoreHTTPSErrors: true })
     const page = await ctx.newPage()
     await page.route(new RegExp('^' + BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/seq/'), (r) => r.abort())
-    await page.goto(`${BASE}/jardim/`)
+    await page.goto(`${BASE}/jardim/?gate=0`)
     const ok = await page
       .waitForSelector('text=Tentar de novo', { timeout: 20000 })
       .then(() => true)
@@ -200,7 +200,7 @@ if (!process.env.SKIP_ROBUST) {
   {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, ignoreHTTPSErrors: true })
     const page = await ctx.newPage()
-    await page.goto(`${BASE}/jardim/`)
+    await page.goto(`${BASE}/jardim/?gate=0`)
     await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
     const issues = []
     for (let i = 0; i < 8; i++) {

@@ -29,29 +29,41 @@ ap.add_argument("--webp-q", type=int, default=72)
 args = ap.parse_args()
 
 
-def encode(src, dst_base):
+COLOR = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "iec61966-2-1", "-color_range", "pc"]
+
+
+def fresh(dst, src):
+    return os.path.exists(dst) and os.path.getmtime(dst) > os.path.getmtime(src)
+
+
+def encode(src, dst_base, alpha=False):
     avif, webp = dst_base + ".avif", dst_base + ".webp"
-    if not (os.path.exists(avif) and os.path.getmtime(avif) > os.path.getmtime(src)):
-        subprocess.run(
+    if not fresh(avif, src):
+        if alpha:
+            # o muxer AVIF do ffmpeg grava o alfa como imagem auxiliar: segundo stream
+            cmd = [args.ffmpeg, "-loglevel", "error", "-y", "-i", src, "-filter_complex",
+                   "[0:v]scale=out_color_matrix=bt709:out_range=full,format=yuv444p10le[c];"
+                   "[0:v]alphaextract,format=gray10le[a]",
+                   "-map", "[c]", "-map", "[a]", "-c:v", "libaom-av1", "-still-picture", "1",
+                   "-crf", str(args.crf + 3), "-cpu-used", "6", *COLOR, "-f", "avif", avif]
+        else:
             # 4:4:4 10 bits + tags BT.709/sRGB: sem manchas nos gradientes do estúdio e sem desvio de cor
-            [args.ffmpeg, "-loglevel", "error", "-y", "-i", src,
-             "-vf", "scale=out_color_matrix=bt709:out_range=full,format=yuv444p10le",
-             "-c:v", "libaom-av1", "-still-picture", "1", "-crf", str(args.crf), "-cpu-used", "6",
-             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "iec61966-2-1", "-color_range", "pc",
-             "-f", "avif", avif],
-            check=True,
-        )
-    if not (os.path.exists(webp) and os.path.getmtime(webp) > os.path.getmtime(src)):
+            cmd = [args.ffmpeg, "-loglevel", "error", "-y", "-i", src,
+                   "-vf", "scale=out_color_matrix=bt709:out_range=full,format=yuv444p10le",
+                   "-c:v", "libaom-av1", "-still-picture", "1", "-crf", str(args.crf), "-cpu-used", "6",
+                   *COLOR, "-f", "avif", avif]
+        subprocess.run(cmd, check=True)
+    if not fresh(webp, src):
         subprocess.run(
             [args.ffmpeg, "-loglevel", "error", "-y", "-i", src, "-c:v", "libwebp", "-quality", str(args.webp_q),
-             "-compression_level", "5", webp],
+             "-compression_level", "5", *(["-pix_fmt", "yuva420p"] if alpha else []), webp],
             check=True,
         )
     return os.path.getsize(avif), os.path.getsize(webp)
 
 
 meta = json.load(open(os.path.join(HERE, "build", "meta.json")))
-manifest = {k: meta[k] for k in ("frames", "seqEnd", "total", "built", "labels", "final", "bom")}
+manifest = {k: meta[k] for k in ("frames", "seqEnd", "total", "built", "labels", "final", "bom", "turn")}
 manifest["variants"] = {}
 jobs = []
 for variant in ("desktop", "mobile"):
@@ -64,12 +76,18 @@ for variant in ("desktop", "mobile"):
         d = os.path.join(OUT, variant, mode)
         os.makedirs(d, exist_ok=True)
         for i, f in enumerate(files):
-            jobs.append((f, os.path.join(d, f"{i:04d}")))
+            jobs.append((f, os.path.join(d, f"{i:04d}"), mode == "turn"))
         v[mode] = {"frames": idx, "path": f"{variant}/{mode}"}
+        if mode == "turn":
+            v[mode]["crop"] = meta["turn"]["crop"][variant]
+            v[mode]["res"] = meta["turn"]["res"][variant]
     if v:
         from PIL import Image
 
-        w, h = Image.open(glob.glob(os.path.join(RENDERS, f"{variant}_main_*.png"))[0]).size
+        mains = glob.glob(os.path.join(RENDERS, f"{variant}_main_*.png"))
+        if not mains:
+            continue
+        w, h = Image.open(mains[0]).size
         v["size"] = [w, h]
         manifest["variants"][variant] = v
 

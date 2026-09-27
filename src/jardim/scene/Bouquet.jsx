@@ -2,15 +2,11 @@ import { useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { PartBatch } from '../bricks/PartBatch.js'
-import { buildFlower } from '../bricks/flowers.js'
-import { BRICK, PLATE } from '../bricks/geometry.js'
-import { C } from '../bricks/material.js'
-import { state, clamp, rng, easeInOutCubic, smooth, invLerp, easeOutBack } from '../store.js'
-import { click, scatterSound } from '../lib/audio.js'
+import { buildBouquetParts, BOUQUET_POS, PED_H } from '../bricks/world.js'
+import { state, clamp, easeInOutCubic, smooth, invLerp, easeOutBack, bouquetAngle } from '../store.js'
+import { click, scatterSound, haptic } from '../lib/audio.js'
 
-export const BOUQUET_POS = new THREE.Vector3(0, 0, -165)
-export { PED_H }
-const PED_H = BRICK * 4
+export { BOUQUET_POS, PED_H }
 const GRAV = 30
 
 const _m = new THREE.Matrix4()
@@ -26,60 +22,7 @@ export { toggleBouquet } from '../store.js'
 
 export default function Bouquet({ geos, material, withPedestal = true }) {
   const data = useMemo(() => {
-    const r = rng(99)
-    const parts = []
-    const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z)
-
-    // pedestal: fiadas de 2×4 cruzadas — a coluna do arquiteto
-    // (quando o pedestal já está no plate renderizado, ele vira só um oclusor)
-    for (let l = 0; l < (withPedestal ? 4 : 0); l++) {
-      const rotd = l % 2 ? Math.PI / 2 : 0
-      for (const o of [-1, 1]) {
-        const off = new THREE.Vector3(0, 0, o).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotd)
-        const m = T(off.x, l * BRICK, off.z).multiply(new THREE.Matrix4().makeRotationY(rotd))
-        parts.push({ type: 'brick2x4', color: l % 2 ? C.white : C.cream, matrix: m, role: 'pedestal' })
-      }
-    }
-    // vaso: anéis de tijolos redondos
-    const vaseY = PED_H
-    const ringN = 9
-    for (let l = 0; l < 3; l++) {
-      const R = 1.55 + l * 0.18
-      for (let i = 0; i < ringN; i++) {
-        const a = (i / ringN) * Math.PI * 2 + l * 0.35
-        const m = T(Math.cos(a) * R, vaseY + l * BRICK, Math.sin(a) * R)
-        parts.push({ type: 'roundBrick', color: (i + l) % 3 === 0 ? C.blush : C.terracotta, matrix: m, role: 'vase' })
-      }
-    }
-    // flores do buquê, abrindo em leque a partir do vaso
-    const kinds = [
-      ['rose', { petal: C.pink, inner: C.pinkHot }, 16, 0, 0],
-      ['sunflower', { petal: C.yellow, core: C.terracotta }, 14.5, 0.3, 0.2],
-      ['tulip', { petal: C.orange, inner: C.coral }, 13.5, 0.36, 1.5],
-      ['allium', { petal: C.lilac }, 15, 0.3, 2.6],
-      ['daisy', { petal: C.white, core: C.yellow }, 12.5, 0.42, 3.5],
-      ['spike', { petal: C.pinkHot, alt: C.pink }, 14, 0.34, 4.4],
-      ['tulip', { petal: C.yellow, inner: C.orange }, 12, 0.46, 5.4],
-      ['rose', { petal: C.coral, inner: C.orange }, 11.5, 0.5, 0.9],
-    ]
-    for (const [kind, head, h, tilt, dir] of kinds) {
-      const fp = buildFlower({
-        kind,
-        height: h,
-        rand: r,
-        head,
-        lean: 0.05,
-        leaves: [{ node: 2, angle: dir + 0.5, pitch: 0.5, scale: 0.8 }],
-      })
-      const base = T(Math.cos(dir) * 0.5 * (tilt > 0 ? 1 : 0), vaseY + 0.4, Math.sin(dir) * 0.5 * (tilt > 0 ? 1 : 0)).multiply(
-        new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(Math.sin(dir), 0, -Math.cos(dir)).normalize(), -tilt),
-      )
-      for (const p of fp) {
-        p.matrix.premultiply(base)
-        p.role = 'flower'
-        parts.push(p)
-      }
-    }
+    const parts = buildBouquetParts({ withPedestal })
     parts.forEach((p, i) => {
       p.order = i
       p.pos = new THREE.Vector3()
@@ -97,7 +40,13 @@ export default function Bouquet({ geos, material, withPedestal = true }) {
     return { batch, parts }
   }, [geos, material, withPedestal])
 
-  useEffect(() => () => data.batch.dispose(), [data])
+  useEffect(() => {
+    state.bouquet.threeReady = true
+    return () => {
+      state.bouquet.threeReady = false
+      data.batch.dispose()
+    }
+  }, [data])
 
   useFrame(({ clock }, dt) => {
     dt = Math.min(dt, 1 / 30)
@@ -111,9 +60,8 @@ export default function Bouquet({ geos, material, withPedestal = true }) {
     data.batch.group.visible = P > 0.86
 
     // giro: automático + arraste com inércia
-    B.spinVel *= Math.exp(-dt * 2.5)
-    B.spin += dt * 0.22 + B.spinVel * dt
-    _r.makeRotationY(B.spin + P * 3)
+    // o giro é integrado no relógio da página (Sequence), que também gira o turntable
+    _r.makeRotationY(bouquetAngle(P))
 
     if (B.request === 'explode' && B.mode === 'idle') {
       B.request = null
@@ -131,6 +79,7 @@ export default function Bouquet({ geos, material, withPedestal = true }) {
         p.rest = false
       }
       scatterSound(26)
+      haptic([12, 40, 18, 60, 26])
     } else if (B.request === 'return' && B.mode === 'exploded') {
       B.request = null
       B.mode = 'returning'
@@ -181,6 +130,7 @@ export default function Bouquet({ geos, material, withPedestal = true }) {
         if (a >= 1 && !p.snapped) {
           p.snapped = true
           click({ pitch: 0.9 + Math.random() * 0.5, gain: 0.4 })
+          if (p.order % 9 === 0) haptic(6)
         }
         if (a < 1) allBack = false
       } else {
@@ -200,7 +150,10 @@ export default function Bouquet({ geos, material, withPedestal = true }) {
       }
       data.batch.set(p, _m)
     }
-    if (B.mode === 'returning' && allBack) B.mode = 'idle'
+    if (B.mode === 'returning' && allBack) {
+      B.mode = 'idle'
+      B.idleAt = now
+    }
     data.batch.commit()
     state.bouquetAssembled = B.mode === 'idle' ? Math.round(arrive * data.parts.length) : 0
   })

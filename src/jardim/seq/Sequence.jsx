@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import gsap from 'gsap'
 import { SequencePlayer, detectFormat } from './SequencePlayer.js'
-import { state, damp, clamp, smooth, invLerp, lerp } from '../store.js'
+import { state, damp, clamp, smooth, invLerp, lerp, bouquetAngle } from '../store.js'
+import { snapBurst, updateAmbient } from '../lib/audio.js'
 
 // Canvas de fundo com a sequência renderizada no Blender. Também é o "relógio" da cena:
 // suaviza o progresso e o ponteiro, posiciona as etiquetas e alimenta o contador de peças.
@@ -141,8 +142,30 @@ export default function Sequence({ onManifest }) {
         torch: { x: (pt.sx * 0.5 + 0.5) * W, y: (-pt.sy * 0.5 + 0.5) * H, amount: torchAmt },
       })
 
-      // peças montadas (dados exportados por frame)
-      state.built = m.built[Math.round(fs)] || 0
+      // ---- buquê: giro + híbrido turntable (Blender) / peças (Three.js) ----
+      const B = state.bouquet
+      B.spinVel *= Math.exp(-dt * 2.5)
+      B.spin += dt * 0.22 + B.spinVel * dt
+      const arrived = P >= 0.93
+      let turnTarget = 0
+      if (player.turnReady() && P > 0.86) {
+        if (!B.threeReady) turnTarget = smooth(invLerp(0.88, 0.93, P)) // sem 3D ainda: o render aparece sozinho
+        else if (arrived && B.mode === 'idle' && !B.request && now - (B.idleAt || 0) > 350) turnTarget = 1
+      }
+      // explodir: troca instantânea para as peças (o movimento esconde a troca)
+      if (B.request === 'explode' || B.mode !== 'idle') B.turnAlpha = 0
+      else B.turnAlpha = damp(B.turnAlpha, turnTarget, turnTarget > B.turnAlpha ? 5 : 14, dt)
+      if (B.turnAlpha > 0.001) {
+        const n = player.src.turn.length
+        const a = bouquetAngle(P) / (Math.PI * 2)
+        player.drawTurn((a - Math.floor(a)) * n, B.turnAlpha)
+      }
+
+      // peças montadas (dados exportados por frame): cada nova peça encaixada "estala"
+      const built = m.built[Math.round(fs)] || 0
+      if (built > (state.built || 0) && dir > 0 && !idle) snapBurst(built - state.built)
+      state.built = built
+      updateAmbient(P, smooth(invLerp(0.085, 0.2, P)), Math.abs(state.velocity || 0))
 
       // etiquetas dos projetos
       const L = m.labels[state.seq.variant]

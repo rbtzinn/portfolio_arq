@@ -125,6 +125,122 @@ html.lenis body {
   border-radius: 4px;
 }
 
+/* ---------- cursor ---------- */
+html.has-cursor,
+html.has-cursor * {
+  cursor: none !important;
+}
+.cursor {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+.cursor__ring,
+.cursor__dot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+  transition: opacity 0.3s;
+}
+.cursor__ring {
+  width: 38px;
+  height: 38px;
+  margin: -19px 0 0 -19px;
+  border-radius: 999px;
+  border: 1px solid var(--fg);
+  display: grid;
+  place-items: center;
+  transition: opacity 0.3s, width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.35s, margin 0.35s, background 0.3s,
+    border-color 0.3s;
+}
+.cursor__ring.is-hover {
+  background: color-mix(in oklab, var(--pink) 18%, transparent);
+  border-color: var(--pink);
+}
+.cursor__ring.is-pill {
+  width: 150px;
+  height: 36px;
+  margin: -18px 0 0 -75px;
+  background: color-mix(in oklab, var(--paper) 86%, transparent);
+  border-color: rgb(29 26 22 / 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.cursor__ring.is-pill.is-dark {
+  width: 64px;
+  margin-left: -32px;
+  background: radial-gradient(circle, rgb(255 190 120 / 0.55), rgb(255 150 80 / 0.12) 70%);
+  border-color: rgb(255 210 160 / 0.5);
+}
+.cursor__label {
+  font-size: 10px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.is-dark .cursor__label {
+  color: var(--paper);
+}
+.cursor__dot {
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--pink);
+}
+
+/* ---------- vinheta fotográfica ---------- */
+.stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(130% 110% at 50% 45%, transparent 55%, rgb(40 28 16 / 0.16) 100%);
+}
+
+/* ---------- grão de filme ---------- */
+.grain {
+  position: fixed;
+  inset: -50%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.055;
+  mix-blend-mode: overlay;
+  animation: grain 0.9s steps(6) infinite;
+}
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-4%, 3%); }
+  40% { transform: translate(3%, -5%); }
+  60% { transform: translate(-6%, -2%); }
+  80% { transform: translate(5%, 4%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ---------- revelação por linha (cascata ligada ao scroll) ---------- */
+.line {
+  display: block;
+  overflow: hidden;
+  padding: 0 0.14em 0.11em 0;
+  margin: 0 -0.14em -0.11em 0;
+}
+.line__in,
+.rv {
+  --a-in: clamp(0, calc(1 - (var(--cin, 1) * 1.7 - var(--i, 0) * 0.26)), 1);
+  --a-out: clamp(0, calc(var(--cout, 0) * 1.7 - var(--i, 0) * 0.16), 1);
+}
+.line__in {
+  display: inline-block;
+  transform: translate3d(0, calc(var(--a-in) * 108% - var(--a-out) * 125%), 0) rotate(calc(var(--a-in) * 3deg));
+  transform-origin: 0 100%;
+  will-change: transform;
+}
+.rv {
+  transform: translate3d(0, calc((var(--a-in) - var(--a-out)) * 26px), 0);
+  opacity: calc(1 - max(var(--a-in), var(--a-out)));
+}
+
 /* ---------- carregamento ---------- */
 .loader {
   position: fixed;
@@ -139,6 +255,13 @@ html.lenis body {
 .is-ready .loader {
   opacity: 0;
   visibility: hidden;
+  transform: translateY(-4%);
+  transition: opacity 1s cubic-bezier(0.7, 0, 0.2, 1), transform 1.2s cubic-bezier(0.7, 0, 0.2, 1), visibility 1.2s;
+}
+.is-ready .loader__n {
+  transform: translateY(-30%) scale(0.92);
+  opacity: 0;
+  transition: transform 0.9s cubic-bezier(0.7, 0, 0.2, 1), opacity 0.6s;
 }
 .loader__box {
   display: flex;
@@ -156,6 +279,45 @@ html.lenis body {
   margin-top: 8px;
   cursor: pointer;
   background: none;
+}
+.gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+}
+.gate.is-on {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.gate__main {
+  min-width: 220px;
+}
+.gate__main:hover {
+  background: var(--paper) !important;
+  color: var(--ink) !important;
+}
+.gate__alt {
+  background: none;
+  border: 0;
+  color: var(--paper);
+  opacity: 0.55;
+  cursor: pointer;
+  padding: 6px;
+}
+.gate__hint {
+  color: var(--paper);
+  opacity: 0.4;
+  font-size: 10px;
+}
+.gate__alt:hover {
+  opacity: 1;
 }
 .loader__alt {
   pointer-events: auto;
@@ -695,6 +857,7 @@ html.lenis body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .grain,
   .scroll-hint i,
   .tag__dot::after,
   .bq-hint__ring::after {

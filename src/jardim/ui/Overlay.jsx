@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { state, smooth, invLerp, clamp, toggleBouquet } from '../store.js'
 import { enableSound } from '../lib/audio.js'
-import { scrollToProgress } from '../lib/scroll.js'
+import { scrollToProgress, setScrollLocked } from '../lib/scroll.js'
 import { slugify } from '../../utils/slug.js'
 
 const NUM = ['zero', 'uma', 'duas', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez']
@@ -29,6 +29,13 @@ const NAV = [
   { label: 'Buquê', p: 0.95, from: 0.86 },
 ]
 
+// Linha de título revelada por máscara; --i ordena a cascata (ver .line em styles.css)
+const Line = ({ i, children }) => (
+  <span className="line" style={{ '--i': i }}>
+    <span className="line__in">{children}</span>
+  </span>
+)
+
 const pad = (n, l = 3) => String(Math.max(0, Math.round(n))).padStart(l, '0')
 
 export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 10, leaves: 2, petals: 27 } }) {
@@ -44,7 +51,8 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
   const loaderCount = useRef()
   const navRefs = useRef([])
   const [sound, setSound] = useState(false)
-  const [ready, setReady] = useState(false)
+  const [ready, setReady] = useState(false) // visitante entrou (loader aberto)
+  const [loaded, setLoaded] = useState(false) // frames prontos: mostra o portão
   const [failed, setFailed] = useState(false)
   state.labelEls = state.labelEls || []
 
@@ -57,7 +65,11 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
     }
     const done = () => {
       if (loaderCount.current && state.seq) loaderCount.current.textContent = pad(state.seq.manifest.built.at(-1), 4)
-      setTimeout(() => setReady(true), 250)
+      state.intro = 0
+      const q = new URLSearchParams(location.search)
+      // links profundos (?p=) e testes (?gate=0) entram direto
+      if (q.has('p') || q.get('gate') === '0') enter(false)
+      else setTimeout(() => setLoaded(true), 250)
     }
     const onError = () => setFailed(true)
     if (state.ready) done()
@@ -81,10 +93,18 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         const fin = c.a < 0 ? 1 : smooth(invLerp(c.a, c.a + 0.03, P))
         const fout = smooth(invLerp(c.b - 0.03, c.b, P))
         const o = fin * (1 - fout)
-        el.style.opacity = o.toFixed(3)
-        el.style.transform = `translate3d(0, ${((1 - fin) * 40 - fout * 40).toFixed(1)}px, 0)`
-        el.style.visibility = o < 0.01 ? 'hidden' : 'visible'
-        el.classList.toggle('is-on', o > 0.6)
+        const cin = c.id === 'void' ? Math.min(fin, state.intro ?? 1) : fin
+        el.style.opacity = (Math.min(1, cin * 3) * (1 - fout) ** 1.6).toFixed(3)
+        el.style.setProperty('--cin', cin.toFixed(3))
+        el.style.setProperty('--cout', fout.toFixed(3))
+        el.style.visibility = cin < 0.01 || fout > 0.99 ? 'hidden' : 'visible'
+        el.classList.toggle('is-on', cin > 0.6 && fout < 0.4)
+        // lista de peças conta de 0 até o total, como num manual
+        if (c.id === 'stem')
+          for (const b of el.querySelectorAll('b[data-n]')) {
+            const v = Math.round(+b.dataset.n * clamp(cin * 1.5 - 0.3)) + '×'
+            if (b.textContent !== v) b.textContent = v
+          }
         scrim = Math.max(scrim, c.id === 'garden' ? o * 0.6 : o)
       }
       document.documentElement.style.setProperty('--scrim', scrim.toFixed(3))
@@ -129,6 +149,18 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
     return () => gsap.ticker.remove(tick)
   }, [])
 
+  // entrada: o título sobe linha a linha depois que o loader se abre
+  const enter = (withSound) => {
+    if (withSound) {
+      enableSound(true)
+      setSound(true)
+    }
+    setScrollLocked(false)
+    setReady(true)
+    gsap.to(state, { intro: 1, duration: 1.9, delay: 0.55, ease: 'power3.out' })
+  }
+  useEffect(() => setScrollLocked(true), [])
+
   const toggleSound = () => {
     enableSound(!sound)
     setSound(!sound)
@@ -150,10 +182,19 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
             </>
           ) : (
             <>
-              <span className="mono">Separando peças</span>
+              <span className="mono">{loaded ? 'Peças separadas' : 'Separando peças'}</span>
               <span ref={loaderCount} className="loader__n">
                 0000
               </span>
+              <div className={`gate ${loaded ? 'is-on' : ''}`}>
+                <button className="btn btn--light gate__main" onClick={() => enter(true)} disabled={!loaded}>
+                  Entrar com som
+                </button>
+                <button className="gate__alt mono" onClick={() => enter(false)} disabled={!loaded}>
+                  Entrar sem som
+                </button>
+                <span className="gate__hint mono">Melhor com fones</span>
+              </div>
             </>
           )}
         </div>
@@ -192,63 +233,59 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       </nav>
 
       <section ref={(el) => (refs.current.void = el)} className="ch ch--void">
-        <p className="kicker mono">Botânica Modular — portfólio em peças</p>
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Botânica Modular — portfólio em peças</p>
         <h1>
-          Tudo começa
-          <br />
-          <em>solto.</em>
+          <Line i={0}>Tudo começa</Line>
+          <Line i={1}><em>solto.</em></Line>
         </h1>
-        <p className="lede">Centenas de peças no escuro e nenhuma instrução. Mova o cursor: a luz é você.</p>
+        <p className="lede rv" style={{ '--i': 2.2 }}>Centenas de peças no escuro e nenhuma instrução. Mova o cursor: a luz é você.</p>
       </section>
 
       <section ref={(el) => (refs.current.stem = el)} className="ch ch--stem">
-        <p className="kicker mono">Passo 02 — Estrutura</p>
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 02 — Estrutura</p>
         <h2>
-          Antes da flor,
-          <br />
-          <em>a estrutura.</em>
+          <Line i={0}>Antes da flor,</Line>
+          <Line i={1}><em>a estrutura.</em></Line>
         </h2>
-        <p className="lede">Todo projeto nasce do que não se vê: eixo, apoio, encaixe. Um caule é arquitetura em miniatura.</p>
-        <ul className="bom mono" aria-label="Lista de peças">
+        <p className="lede rv" style={{ '--i': 2.2 }}>Todo projeto nasce do que não se vê: eixo, apoio, encaixe. Um caule é arquitetura em miniatura.</p>
+        <ul className="bom mono rv" style={{ '--i': 3 }} aria-label="Lista de peças">
           <li>
-            <b>{bom.bars}×</b> barra
+            <b data-n={bom.bars}>{bom.bars}×</b> barra
           </li>
           <li>
-            <b>{bom.plates}×</b> peça redonda 1×1
+            <b data-n={bom.plates}>{bom.plates}×</b> peça redonda 1×1
           </li>
           <li>
-            <b>{bom.slopes}×</b> slope 45° 1×2
+            <b data-n={bom.slopes}>{bom.slopes}×</b> slope 45° 1×2
           </li>
           <li>
-            <b>{bom.leaves}×</b> folha curva 3×5
+            <b data-n={bom.leaves}>{bom.leaves}×</b> folha curva 3×5
           </li>
         </ul>
       </section>
 
       <section ref={(el) => (refs.current.bloom = el)} className="ch ch--bloom">
-        <p className="kicker mono">Passo 03 — Desabrochar</p>
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 03 — Desabrochar</p>
         <h2>
-          Peça por peça,
-          <br />
-          <em>a forma aparece.</em>
+          <Line i={0}>Peça por peça,</Line>
+          <Line i={1}><em>a forma aparece.</em></Line>
         </h2>
-        <p className="lede">
+        <p className="lede rv" style={{ '--i': 2.2 }}>
           {cap(extenso(bom.petals))} placas curvas, cada uma no seu ângulo. O detalhe é o que transforma estrutura em lugar.
         </p>
       </section>
 
       <section ref={(el) => (refs.current.reveal = el)} className="ch ch--reveal">
-        <p className="kicker mono">Passo 04 — Jardim</p>
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 04 — Jardim</p>
         <h2>
-          Arquitetura
-          <br />
-          <em>é cultivar.</em>
+          <Line i={0}>Arquitetura</Line>
+          <Line i={1}><em>é cultivar.</em></Line>
         </h2>
-        <p className="lede">Cada canteiro deste jardim é um projeto. Caminhe entre eles.</p>
+        <p className="lede rv" style={{ '--i': 2.2 }}>Cada canteiro deste jardim é um projeto. Caminhe entre eles.</p>
       </section>
 
       <section ref={(el) => (refs.current.garden = el)} className="ch ch--garden">
-        <p className="kicker mono">Passo 04 — Projetos selecionados</p>
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 04 — Projetos selecionados</p>
       </section>
 
       {projects.map((p, i) => (
@@ -270,14 +307,13 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       ))}
 
       <section ref={(el) => (refs.current.bouquet = el)} className="ch ch--bouquet">
-        <p className="kicker mono">Passo 05 — Buquê</p>
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 05 — Buquê</p>
         <h2>
-          Monte. Desmonte.
-          <br />
-          <em>Recomece.</em>
+          <Line i={0}>Monte. Desmonte.</Line>
+          <Line i={1}><em>Recomece.</em></Line>
         </h2>
-        <p className="lede">Um bom projeto é feito de partes que podem ser repensadas. Vamos montar o seu?</p>
-        <div className="actions ui-block">
+        <p className="lede rv" style={{ '--i': 2.2 }}>Um bom projeto é feito de partes que podem ser repensadas. Vamos montar o seu?</p>
+        <div className="actions ui-block rv" style={{ '--i': 3 }}>
           <a className="btn btn--solid" href="/#contato">
             Iniciar um projeto
           </a>

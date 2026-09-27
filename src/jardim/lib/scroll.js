@@ -44,6 +44,12 @@ export function setupScroll(track) {
   }
 }
 
+// trava o scroll até o visitante entrar (portão de som)
+export function setScrollLocked(locked) {
+  if (!lenis) return
+  locked ? lenis.stop() : lenis.start()
+}
+
 export function scrollToProgress(p) {
   if (!lenis) return
   const max = document.documentElement.scrollHeight - window.innerHeight

@@ -408,3 +408,66 @@ export function poseGarden(world, P, emit) {
   }
   return built
 }
+
+/* ------------------------------------------------------------------ */
+/* buquê (final interativo)                                            */
+/* ------------------------------------------------------------------ */
+
+export const BOUQUET_POS = PEDESTAL
+export const PED_H = BRICK * 4
+// o turntable renderizado no Blender: um frame a cada 3°
+export const TURN_FRAMES = 120
+
+// Vaso + flores (e, opcionalmente, o pedestal) em coordenadas locais do pedestal.
+export function buildBouquetParts({ withPedestal = true } = {}) {
+  const r = rng(99)
+  const parts = []
+  const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z)
+  for (let l = 0; l < (withPedestal ? 4 : 0); l++) {
+    const rotd = l % 2 ? Math.PI / 2 : 0
+    for (const o of [-1, 1]) {
+      const off = new THREE.Vector3(0, 0, o).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotd)
+      const m = T(off.x, l * BRICK, off.z).multiply(new THREE.Matrix4().makeRotationY(rotd))
+      parts.push({ type: 'brick2x4', color: l % 2 ? C.white : C.cream, matrix: m, role: 'pedestal' })
+    }
+  }
+  const vaseY = PED_H
+  for (let l = 0; l < 3; l++) {
+    const R = 1.55 + l * 0.18
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2 + l * 0.35
+      parts.push({ type: 'roundBrick', color: (i + l) % 3 === 0 ? C.blush : C.terracotta, matrix: T(Math.cos(a) * R, vaseY + l * BRICK, Math.sin(a) * R), role: 'vase' })
+    }
+  }
+  const kinds = [
+    ['rose', { petal: C.pink, inner: C.pinkHot }, 16, 0, 0],
+    ['sunflower', { petal: C.yellow, core: C.terracotta }, 14.5, 0.3, 0.2],
+    ['tulip', { petal: C.orange, inner: C.coral }, 13.5, 0.36, 1.5],
+    ['allium', { petal: C.lilac }, 15, 0.3, 2.6],
+    ['daisy', { petal: C.white, core: C.yellow }, 12.5, 0.42, 3.5],
+    ['spike', { petal: C.pinkHot, alt: C.pink }, 14, 0.34, 4.4],
+    ['tulip', { petal: C.yellow, inner: C.orange }, 12, 0.46, 5.4],
+    ['rose', { petal: C.coral, inner: C.orange }, 11.5, 0.5, 0.9],
+  ]
+  for (const [kind, head, h, tilt, dir] of kinds) {
+    const fp = buildFlower({ kind, height: h, rand: r, head, lean: 0.05, leaves: [{ node: 2, angle: dir + 0.5, pitch: 0.5, scale: 0.8 }] })
+    const k = tilt > 0 ? 1 : 0
+    const base = T(Math.cos(dir) * 0.5 * k, vaseY + 0.4, Math.sin(dir) * 0.5 * k).multiply(
+      new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(Math.sin(dir), 0, -Math.cos(dir)).normalize(), -tilt),
+    )
+    for (const p of fp) {
+      p.matrix.premultiply(base)
+      p.role = 'flower'
+      parts.push(p)
+    }
+  }
+  parts.forEach((p, i) => (p.order = i))
+  return parts
+}
+
+// matriz de mundo de uma peça do buquê girado pelo ângulo `a` (em torno do eixo do pedestal)
+export function bouquetWorldMatrix(part, a, out = new THREE.Matrix4()) {
+  const spins = part.role !== 'pedestal'
+  out.makeRotationY(spins ? a : 0).setPosition(BOUQUET_POS)
+  return out.multiply(part.matrix)
+}

@@ -28,7 +28,7 @@ BUILD = os.path.join(HERE, "build")
 argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
 ap.add_argument("--variant", default="desktop", choices=["desktop", "mobile"])
-ap.add_argument("--mode", default="main", choices=["main", "lit"])
+ap.add_argument("--mode", default="main", choices=["main", "lit", "turn"])
 ap.add_argument("--frames", default="0:240:1")
 ap.add_argument("--res", default="1440x900")
 ap.add_argument("--samples", type=int, default=48)
@@ -43,6 +43,8 @@ NF = scene_data["frames"]
 objs_meta = scene_data["objects"]
 NO = len(objs_meta)
 xforms = np.memmap(os.path.join(BUILD, "xforms.bin"), dtype=np.float32, mode="r").reshape(NF, NO, 4, 4)
+TURN = scene_data["turn"]
+turn_x = np.memmap(os.path.join(BUILD, "turn.bin"), dtype=np.float32, mode="r").reshape(TURN["frames"], len(TURN["ids"]), 4, 4)
 
 
 def srgb(h):
@@ -180,7 +182,7 @@ def y2z(x, y, z):  # three (Y-up) → Blender (Z-up)
     return (x, -z, y)
 
 
-key = sun("key", Vector(y2z(-14, -30, -12)).normalized(), 9, (1.0, 0.95, 0.88))
+key = sun("key", Vector(y2z(-14, -30, -12)).normalized(), 4, (1.0, 0.95, 0.88))
 rim = sun("rim", Vector(y2z(6, -10, 16)).normalized(), 15, (0.92, 0.96, 1.0))
 
 torch_d = bpy.data.lights.new("torch", "AREA")
@@ -189,6 +191,31 @@ torch_d.size = 18
 torch_d.color = (1.0, 0.88, 0.76)
 torch = bpy.data.objects.new("torch", torch_d)
 coll.objects.link(torch)
+
+# estufa: treliça invisível à câmera que só projeta sombra — linhas de caixilho sobre o jardim
+glass = []
+
+
+def bar(loc, dims):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=loc)
+    ob = bpy.context.active_object
+    ob.scale = dims
+    ob.visible_camera = False
+    ob.visible_diffuse = False
+    ob.visible_glossy = False
+    ob.visible_transmission = False
+    ob.visible_volume_scatter = False
+    ob.visible_shadow = True
+    glass.append(ob)
+
+
+GH_Y, GH_Z0, GH_Z1 = 34, 30, -128  # altura e extensão (coordenadas three: y, z)
+for X in (-24, -8, 8, 24):
+    bar(y2z(X, GH_Y, (GH_Z0 + GH_Z1) / 2), (1.1, GH_Z0 - GH_Z1, 1.1))
+z = GH_Z0
+while z >= GH_Z1:
+    bar(y2z(0, GH_Y, z), (80, 1.1, 1.1))
+    z -= 14
 
 cam_d = bpy.data.cameras.new("cam")
 cam_d.sensor_fit = "VERTICAL"
@@ -242,6 +269,46 @@ scene.view_settings.look = "None"
 scene.view_settings.exposure = 0.0
 
 
+turn_ids = set(TURN["ids"])
+ped_ids = set(TURN["pedestal"])
+
+
+def set_turn(k):
+    """Buquê girado (ângulo k) sobre fundo transparente; chão e pedestal só recebem sombra."""
+    last = NF - 1
+    fd = set_frame(last)
+    X = turn_x[k]
+    for i, oid in enumerate(TURN["ids"]):
+        ob = objects[oid]
+        ob.hide_render = False
+        ob.matrix_world = Matrix(X[i].tolist())
+    for i, ob in enumerate(objects):
+        if i in turn_ids:
+            continue
+        if i in ped_ids:
+            ob.hide_render = False
+            ob.is_shadow_catcher = True
+            # também catcher e projetando sombra: o catcher registra só a sombra EXTRA do buquê
+            # (onde o pedestal já sombreia o chão no plate, não escurece de novo)
+            ob.visible_shadow = True
+        else:
+            ob.hide_render = True
+    floor.is_shadow_catcher = True
+    for g in glass:
+        g.hide_render = True
+    scene.render.film_transparent = True
+    scene.render.image_settings.color_mode = "RGBA"
+    x0, y0, x1, y1 = TURN["crop"][args.variant]
+    rw, rh = TURN["res"][args.variant]
+    scene.render.use_border = True
+    scene.render.use_crop_to_border = True
+    scene.render.border_min_x = x0 / rw
+    scene.render.border_max_x = x1 / rw
+    scene.render.border_min_y = 1 - y1 / rh
+    scene.render.border_max_y = 1 - y0 / rh
+    return fd
+
+
 def set_frame(f):
     fd = scene_data["frameData"][f]
     light = fd["light"]
@@ -272,7 +339,7 @@ def set_frame(f):
 
     bgc = mix3(DARK, CREAM, light)
     bg.inputs["Color"].default_value = (*bgc, 1)
-    bg.inputs["Strength"].default_value = lerp(0.02, 0.9, light)
+    bg.inputs["Strength"].default_value = lerp(0.02, 0.6, light)
     bg_cam.inputs["Color"].default_value = (*bgc, 1)
     bg_cam.inputs["Strength"].default_value = 1.0
     fb.inputs["Base Color"].default_value = (*mix3(DARK, FLOOR, light), 1)
@@ -281,12 +348,14 @@ def set_frame(f):
         n["fogcolor"].inputs["Color"].default_value = (*bgc, 1)
         n["fogrange"].inputs["From Min"].default_value = lerp(80, 55, fd["garden"])
         n["fogrange"].inputs["From Max"].default_value = lerp(200, 160, fd["garden"])
-    key.energy = lerp(0.0, 4.2, light)
+    key.energy = lerp(0.0, 6.2, light)
     rim.energy = lerp(0.9, 1.2, light)
 
     # lanterna: no modo lit ilumina as peças soltas pela frente
     lit = args.mode == "lit"
     torch.hide_render = not lit
+    for g in glass:
+        g.hide_render = light < 0.02
     if lit:
         cp = cam.matrix_world.translation
         fwd = cam.matrix_world.to_quaternion() @ Vector((0, 0, -1))
@@ -301,7 +370,7 @@ if args.still is not None:
     frames = [args.still]
 else:
     a, b, s = (list(map(int, args.frames.split(":"))) + [1])[:3]
-    frames = list(range(a, min(b, NF), s))
+    frames = list(range(a, min(b, TURN["frames"] if args.mode == "turn" else NF), s))
 
 prefix = f"{args.variant}_{args.mode}"
 for f in frames:
@@ -309,7 +378,7 @@ for f in frames:
     if args.still is None and os.path.exists(path):
         continue
     t = time.time()
-    set_frame(f)
+    set_turn(f) if args.mode == "turn" else set_frame(f)
     t_set = time.time() - t
     scene.render.filepath = path
     bpy.ops.render.render(write_still=True)

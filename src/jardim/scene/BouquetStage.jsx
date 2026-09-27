@@ -114,9 +114,12 @@ export default function BouquetStage({ cam }) {
   const [active, setActive] = useState(false)
   useEffect(() => {
     const tick = () => {
-      const o = smooth(invLerp(0.86, 0.885, state.p))
+      const B = state.bouquet
+      // some quando o turntable renderizado assume; dorme (sem render) quando totalmente coberto
+      const o = smooth(invLerp(0.86, 0.885, state.p)) * (1 - B.turnAlpha)
       if (wrap.current) wrap.current.style.opacity = o.toFixed(3)
-      const on = state.p > 0.82
+      const covered = B.turnAlpha > 0.995 && B.mode === 'idle' && !B.request
+      const on = state.p > 0.82 && !covered
       setActive((a) => (a === on ? a : on))
     }
     gsap.ticker.add(tick)
