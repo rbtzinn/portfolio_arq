@@ -9,6 +9,7 @@ import { state, clamp, rng, easeInOutCubic, smooth, invLerp, easeOutBack } from 
 import { click, scatterSound } from '../lib/audio.js'
 
 export const BOUQUET_POS = new THREE.Vector3(0, 0, -165)
+export { PED_H }
 const PED_H = BRICK * 4
 const GRAV = 30
 
@@ -21,21 +22,17 @@ const _s = new THREE.Vector3()
 const _v = new THREE.Vector3()
 const _one = new THREE.Vector3(1, 1, 1)
 
-// Explode / remonta. Chamado pela interface (clique, toque ou chacoalhar).
-export function toggleBouquet() {
-  const b = state.bouquet
-  if (b.mode === 'idle') b.request = 'explode'
-  else b.request = 'return'
-}
+export { toggleBouquet } from '../store.js'
 
-export default function Bouquet({ geos, material }) {
+export default function Bouquet({ geos, material, withPedestal = true }) {
   const data = useMemo(() => {
     const r = rng(99)
     const parts = []
     const T = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z)
 
     // pedestal: fiadas de 2×4 cruzadas — a coluna do arquiteto
-    for (let l = 0; l < 4; l++) {
+    // (quando o pedestal já está no plate renderizado, ele vira só um oclusor)
+    for (let l = 0; l < (withPedestal ? 4 : 0); l++) {
       const rotd = l % 2 ? Math.PI / 2 : 0
       for (const o of [-1, 1]) {
         const off = new THREE.Vector3(0, 0, o).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotd)
@@ -98,7 +95,7 @@ export default function Bouquet({ geos, material }) {
     const batch = new PartBatch(parts, geos, material)
     state.bouquetCount = parts.length
     return { batch, parts }
-  }, [geos, material])
+  }, [geos, material, withPedestal])
 
   useEffect(() => () => data.batch.dispose(), [data])
 
@@ -110,8 +107,8 @@ export default function Bouquet({ geos, material }) {
     const now = performance.now()
 
     // chegada: o buquê se monta rapidamente quando a câmera se aproxima
-    const arrive = clamp(invLerp(0.8, 0.9, P))
-    data.batch.group.visible = P > 0.76
+    const arrive = clamp(invLerp(0.875, 0.93, P))
+    data.batch.group.visible = P > 0.86
 
     // giro: automático + arraste com inércia
     B.spinVel *= Math.exp(-dt * 2.5)

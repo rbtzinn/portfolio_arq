@@ -1,60 +1,61 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas } from '@react-three/fiber'
-import { PerformanceMonitor } from '@react-three/drei'
-import * as THREE from 'three'
-import Scene from './scene/Scene.jsx'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Sequence from './seq/Sequence.jsx'
 import Overlay from './ui/Overlay.jsx'
-import { TIERS, initialTier, isMobile } from './bricks/quality.js'
 import { setupScroll } from './lib/scroll.js'
 import { projects } from '../data/projects.js'
 import { useInput } from './lib/input.js'
+import { state } from './store.js'
+
+// Three.js só é baixado para o final interativo (buquê).
+const BouquetStage = lazy(() => import('./scene/BouquetStage.jsx'))
 
 export default function App() {
-  const base = TIERS[initialTier]
-  const [degrade, setDegrade] = useState(0)
-  const tier = useMemo(() => {
-    const t = { ...base }
-    if (degrade >= 1) {
-      t.dof = false
-      t.dpr = [Math.min(1, base.dpr[0]), Math.max(1, base.dpr[1] - 0.5)]
-    }
-    if (degrade >= 2) {
-      t.post = false
-      t.dpr = [0.75, 1]
-    }
-    return t
-  }, [base, degrade])
-
   const track = useRef()
   useEffect(() => setupScroll(track.current), [])
   useInput()
+
+  const [final, setFinal] = useState(null)
+  const [bom, setBom] = useState(undefined)
+  const [mountBouquet, setMountBouquet] = useState(false)
+  const onManifest = useCallback((m, variant) => {
+    setFinal(m.final[variant])
+    setBom(m.bom)
+  }, [])
+
+  // monta o buquê quando a sequência terminou de carregar, ou antes se o scroll chegar perto
+  useEffect(() => {
+    let raf
+    const loaded = () => setMountBouquet(true)
+    const watch = () => {
+      if (state.p > 0.55) setMountBouquet(true)
+      else raf = requestAnimationFrame(watch)
+    }
+    watch()
+    window.addEventListener('jardim:loaded', loaded)
+    const onBq = () => {
+      if (state.seq) state.totalPieces = state.seq.manifest.built.at(-1) + (state.bouquetCount || 0)
+    }
+    window.addEventListener('jardim:bouquet', onBq)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('jardim:loaded', loaded)
+      window.removeEventListener('jardim:bouquet', onBq)
+    }
+  }, [])
 
   const list = useMemo(() => projects.slice(0, 4), [])
 
   return (
     <>
       <div className="stage">
-        <Canvas
-          shadows="soft"
-          dpr={tier.dpr}
-          gl={{
-            antialias: !base.post,
-            powerPreference: 'high-performance',
-            toneMapping: THREE.NeutralToneMapping,
-            toneMappingExposure: 1.0,
-            stencil: false,
-          }}
-          camera={{ fov: 34, near: 0.5, far: 420, position: [0, 13, 36] }}
-        >
-          <PerformanceMonitor
-            flipflops={3}
-            bounds={(r) => (isMobile ? [24, 34] : [Math.min(48, r * 0.75), Math.min(58, r * 0.95)])}
-            onDecline={() => setDegrade((d) => Math.min(2, d + 1))}
-          />
-          <Scene tier={tier} projects={list} />
-        </Canvas>
+        <Sequence onManifest={onManifest} />
+        {final && mountBouquet && (
+          <Suspense fallback={null}>
+            <BouquetStage cam={final} />
+          </Suspense>
+        )}
       </div>
-      <Overlay projects={list} tier={initialTier} />
+      <Overlay projects={list} bom={bom} />
       <div ref={track} className="track" aria-hidden="true" />
     </>
   )

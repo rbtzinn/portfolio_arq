@@ -1,31 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
-import { state, smooth, invLerp, clamp } from '../store.js'
+import { state, smooth, invLerp, clamp, toggleBouquet } from '../store.js'
 import { enableSound } from '../lib/audio.js'
 import { scrollToProgress } from '../lib/scroll.js'
-import { toggleBouquet } from '../scene/Bouquet.jsx'
 import { slugify } from '../../utils/slug.js'
-import { buildHero } from '../bricks/flowers.js'
 
 const NUM = ['zero', 'uma', 'duas', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez']
 const TENS = { 20: 'vinte', 30: 'trinta', 40: 'quarenta' }
 const extenso = (n) => (n <= 10 ? NUM[n] : n % 10 === 0 ? TENS[n] : `${TENS[n - (n % 10)]} e ${NUM[n % 10]}`)
 const cap = (s) => s[0].toUpperCase() + s.slice(1)
 
-// Lista de peças real, contada a partir da própria flor-herói.
-function heroBOM() {
-  const parts = buildHero()
-  const count = (fn) => parts.filter(fn).length
-  const stemLike = (p) => p.role === 'stem' || p.role === 'leaf'
-  return {
-    bars: count((p) => stemLike(p) && p.type.startsWith('bar')),
-    plates: count((p) => stemLike(p) && (p.type === 'roundPlate' || p.type === 'roundBrick')),
-    slopes: count((p) => p.type === 'slope'),
-    leaves: count((p) => p.type === 'leaf'),
-    petals: count((p) => p.type.startsWith('petal')),
-    total: parts.length,
-  }
-}
 
 // Capítulos: [entra, sai]. A opacidade e o deslocamento vêm do progresso suavizado.
 const CHAPTERS = [
@@ -46,8 +30,7 @@ const NAV = [
 
 const pad = (n, l = 3) => String(Math.max(0, Math.round(n))).padStart(l, '0')
 
-export default function Overlay({ projects }) {
-  const bom = useMemo(heroBOM, [])
+export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 10, leaves: 2, petals: 27 } }) {
   const refs = useRef({})
   const counter = useRef()
   const total = useRef()
@@ -63,24 +46,24 @@ export default function Overlay({ projects }) {
   const [ready, setReady] = useState(false)
   state.labelEls = state.labelEls || []
 
-  // carregamento: conta as peças enquanto a cena compila
+  // carregamento: o contador acompanha os frames que chegam da rede
   useEffect(() => {
-    const o = { n: 0 }
-    const tw = gsap.to(o, {
-      n: 480,
-      duration: 2.2,
-      ease: 'power2.out',
-      onUpdate: () => loaderCount.current && (loaderCount.current.textContent = pad(o.n, 4)),
-    })
+    const onProgress = (e) => {
+      if (!loaderCount.current || !state.seq) return
+      const total = state.seq.manifest.built.at(-1)
+      loaderCount.current.textContent = pad(Math.min(1, e.detail * 4) * total, 4)
+    }
     const done = () => {
-      tw.progress(1)
-      const target = state.heroCount + (state.gardenCount || 0) + (state.bouquetCount || 0)
-      if (loaderCount.current) loaderCount.current.textContent = pad(target, 4)
+      if (loaderCount.current && state.seq) loaderCount.current.textContent = pad(state.seq.manifest.built.at(-1), 4)
       setTimeout(() => setReady(true), 250)
     }
     if (state.ready) done()
+    window.addEventListener('jardim:progress', onProgress)
     window.addEventListener('jardim:ready', done)
-    return () => window.removeEventListener('jardim:ready', done)
+    return () => {
+      window.removeEventListener('jardim:progress', onProgress)
+      window.removeEventListener('jardim:ready', done)
+    }
   }, [])
 
   useEffect(() => {
@@ -102,8 +85,8 @@ export default function Overlay({ projects }) {
       document.documentElement.style.setProperty('--scrim', scrim.toFixed(3))
       const cur = [...CHAPTERS].reverse().find((c) => P >= c.a - 0.02) || CHAPTERS[0]
       if (stepEl.current && stepEl.current.textContent !== cur.step) stepEl.current.textContent = cur.step
-      const tot = state.heroCount + (state.gardenCount || 0) + (state.bouquetCount || 0)
-      const n = (state.heroSnapped || 0) + (state.gardenGrown || 0) + (state.bouquetAssembled || 0)
+      const tot = state.totalPieces || 0
+      const n = (state.built || 0) + (state.bouquetAssembled || 0)
       if (counter.current) counter.current.textContent = pad(n, 4)
       if (total.current) total.current.textContent = pad(tot, 4)
       if (bar.current) bar.current.style.transform = `scaleY(${clamp(state.progress).toFixed(4)})`

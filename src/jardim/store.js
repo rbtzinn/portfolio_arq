@@ -20,6 +20,12 @@ export const state = {
   ready: false,
 }
 
+// Explode / remonta o buquê (clique, toque ou chacoalhar). A cena 3D consome o pedido.
+export function toggleBouquet() {
+  const b = state.bouquet
+  b.request = b.mode === 'idle' ? 'explode' : 'return'
+}
+
 // Capítulos da narrativa em faixas de progresso.
 export const CH = {
   void: [0.0, 0.1],

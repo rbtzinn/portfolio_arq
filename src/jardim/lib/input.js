@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
-import { state } from '../store.js'
-import { toggleBouquet } from '../scene/Bouquet.jsx'
+import { state, toggleBouquet } from '../store.js'
 
 export const bouquetActive = () => state.p > 0.885
 

@@ -13,6 +13,8 @@ export default defineConfig({
       output: {
         // three/r3f isolados: o site principal não baixa nada de 3D
         manualChunks(id) {
+          // o helper de preload do Vite não pode cair no chunk do three
+          if (id.includes('preload-helper') || id.includes('modulepreload-polyfill')) return 'vite'
           if (!id.includes('node_modules')) return
           if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react'
           if (/node_modules\/three\//.test(id)) return 'three'

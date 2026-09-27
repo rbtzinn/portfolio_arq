@@ -21,3 +21,7 @@ pnpm-debug.log*
 Thumbs.db
 .vscode
 .idea
+
+# assets do Blender (intermediários)
+blender/build
+blender/renders

@@ -40,31 +40,6 @@ export class PartBatch {
       p.matrix.decompose(p.tp, p.tq, p.ts)
     }
   }
-  // Modo compactado: só o que é visível ocupa slots (mesh.count = visíveis).
-  begin() {
-    for (const m of this.meshes) m.userData.cursor = 0
-  }
-  push(part, m) {
-    const mesh = part.mesh
-    const i = mesh.userData.cursor++
-    mesh.setMatrixAt(i, m)
-    if (part.slot !== i || mesh.userData.slotOwner?.[i] !== part) {
-      ;(mesh.userData.slotOwner ||= [])[i] = part
-      part.slot = i
-      mesh.setColorAt(i, part.c || (part.c = new THREE.Color(part.color)))
-      mesh.userData.colorDirty = true
-    }
-  }
-  end() {
-    for (const m of this.meshes) {
-      m.count = m.userData.cursor
-      m.instanceMatrix.needsUpdate = true
-      if (m.userData.colorDirty) {
-        m.instanceColor.needsUpdate = true
-        m.userData.colorDirty = false
-      }
-    }
-  }
   set(part, m) {
     part.mesh.setMatrixAt(part.index, m)
   }
