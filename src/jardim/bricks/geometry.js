@@ -91,6 +91,7 @@ function stud(seg, x = 0, y = 0, z = 0) {
 
 // Tijolo redondo 1×1 (ou placa redonda) — torno completo com pino.
 function roundPiece(h, seg) {
+  const steps = seg >= 20 ? 4 : 2
   return lathe(
     [
       [0, 0],
@@ -102,6 +103,7 @@ function roundPiece(h, seg) {
     ],
     [0, 0.06, 0.06, 0.025, 0.045, 0],
     seg,
+    steps,
   )
 }
 
@@ -119,6 +121,7 @@ function cone(seg) {
     ],
     [0, 0.05, 0.04, 0.04, 0.02, 0.05, 0],
     seg,
+    seg >= 20 ? 4 : 2,
   )
 }
 
@@ -132,7 +135,8 @@ function bar(L, seg) {
       [0, L],
     ],
     [0, 0.09, 0.09, 0],
-    Math.max(10, Math.round(seg * 0.6)),
+    Math.max(8, Math.round(seg * 0.5)),
+    seg >= 20 ? 4 : 2,
   )
 }
 
@@ -186,8 +190,8 @@ function slab(w, h, d, r, k, midX, midZ) {
 // Placa curva: afinada no contorno de uma pétala/folha e dobrada no comprimento e na largura.
 // Origem: centro da borda de encaixe (z=0), espessura em +Y, comprimento em +Z.
 function curvedPlate({ length, width, bend, cup, tip = 0.12, base = 0.5, seg, twist = 0 }) {
-  const k = seg > 20 ? 3 : seg > 15 ? 2 : 1
-  const mid = seg > 20 ? 12 : seg > 15 ? 9 : 6
+  const k = seg >= 26 ? 3 : seg >= 20 ? 2 : 1
+  const mid = seg >= 26 ? 12 : seg >= 20 ? 10 : seg >= 16 ? 9 : 6
   const g = slab(2, PLATE, length, 0.15, k, Math.ceil(mid * 0.6), mid)
   const pos = g.attributes.position
   const v = new THREE.Vector3()

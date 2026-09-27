@@ -65,14 +65,14 @@ function slopeLeaf(b, frame, angle, color, n) {
   const F = frame.clone().multiply(rot(0, angle, 0)).multiply(tr(0, -0.45, 0.25)).multiply(rot(-0.5, 0, 0))
   b.add('bar3', C.leaf, F.clone().multiply(rot(Math.PI / 2, 0, 0)), 'leaf')
   for (let i = 0; i < n; i++) {
-    const s = 1 - i * 0.16
-    const z = 0.7 + i * 0.95
-    const droop = 0.12 + i * 0.1
+    const s = 0.9 - i * 0.18
+    const z = 0.9 + i * 1.15
+    const droop = 0.08 + i * 0.06
     const col = i % 2 ? C.lime : color
     b.add('slope', col, F.clone().multiply(tr(0.25, -0.35, z)).multiply(rot(droop, Math.PI / 2, 0)).multiply(sc(s)), 'leaf')
     b.add('slope', col, F.clone().multiply(tr(-0.25, -0.35, z)).multiply(rot(droop, -Math.PI / 2, 0)).multiply(sc(s)), 'leaf')
   }
-  b.add('slope', C.lime, F.clone().multiply(tr(0, -0.3, 0.7 + n * 0.95 - 0.4)).multiply(rot(0.2, 0, 0)).multiply(sc(0.6)), 'leaf')
+  b.add('slope', C.lime, F.clone().multiply(tr(0, -0.3, 0.9 + n * 1.15 - 0.3)).multiply(rot(0.15, 0, 0)).multiply(sc(0.55)), 'leaf')
 }
 
 function plateLeaf(b, frame, angle, color, pitch, s) {
@@ -183,8 +183,8 @@ export function buildHero() {
     rand: r,
     lean: 0.08,
     leaves: [
-      { node: 1, angle: 0.4, kind: 'slope', size: 3 },
-      { node: 2, angle: 0.4 + Math.PI, kind: 'slope', size: 3 },
+      { node: 1, angle: 0.4, kind: 'slope', size: 2 },
+      { node: 2, angle: 0.4 + Math.PI, kind: 'slope', size: 2 },
       { node: 3, angle: 2.2, pitch: 0.45, scale: 1.15 },
       { node: 4, angle: 5.0, pitch: 0.55, scale: 1.0, color: C.sage },
     ],

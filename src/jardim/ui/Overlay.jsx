@@ -1,10 +1,31 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { state, smooth, invLerp, clamp } from '../store.js'
 import { enableSound } from '../lib/audio.js'
 import { scrollToProgress } from '../lib/scroll.js'
 import { toggleBouquet } from '../scene/Bouquet.jsx'
 import { slugify } from '../../utils/slug.js'
+import { buildHero } from '../bricks/flowers.js'
+
+const NUM = ['zero', 'uma', 'duas', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez']
+const TENS = { 20: 'vinte', 30: 'trinta', 40: 'quarenta' }
+const extenso = (n) => (n <= 10 ? NUM[n] : n % 10 === 0 ? TENS[n] : `${TENS[n - (n % 10)]} e ${NUM[n % 10]}`)
+const cap = (s) => s[0].toUpperCase() + s.slice(1)
+
+// Lista de peças real, contada a partir da própria flor-herói.
+function heroBOM() {
+  const parts = buildHero()
+  const count = (fn) => parts.filter(fn).length
+  const stemLike = (p) => p.role === 'stem' || p.role === 'leaf'
+  return {
+    bars: count((p) => stemLike(p) && p.type.startsWith('bar')),
+    plates: count((p) => stemLike(p) && (p.type === 'roundPlate' || p.type === 'roundBrick')),
+    slopes: count((p) => p.type === 'slope'),
+    leaves: count((p) => p.type === 'leaf'),
+    petals: count((p) => p.type.startsWith('petal')),
+    total: parts.length,
+  }
+}
 
 // Capítulos: [entra, sai]. A opacidade e o deslocamento vêm do progresso suavizado.
 const CHAPTERS = [
@@ -26,6 +47,7 @@ const NAV = [
 const pad = (n, l = 3) => String(Math.max(0, Math.round(n))).padStart(l, '0')
 
 export default function Overlay({ projects }) {
+  const bom = useMemo(heroBOM, [])
   const refs = useRef({})
   const counter = useRef()
   const total = useRef()
@@ -64,6 +86,7 @@ export default function Overlay({ projects }) {
   useEffect(() => {
     const tick = () => {
       const P = state.p
+      let scrim = 0
       for (const c of CHAPTERS) {
         const el = refs.current[c.id]
         if (!el) continue
@@ -74,7 +97,9 @@ export default function Overlay({ projects }) {
         el.style.transform = `translate3d(0, ${((1 - fin) * 40 - fout * 40).toFixed(1)}px, 0)`
         el.style.visibility = o < 0.01 ? 'hidden' : 'visible'
         el.classList.toggle('is-on', o > 0.6)
+        if (c.id !== 'garden') scrim = Math.max(scrim, o)
       }
+      document.documentElement.style.setProperty('--scrim', scrim.toFixed(3))
       const cur = [...CHAPTERS].reverse().find((c) => P >= c.a - 0.02) || CHAPTERS[0]
       if (stepEl.current && stepEl.current.textContent !== cur.step) stepEl.current.textContent = cur.step
       const tot = state.heroCount + (state.gardenCount || 0) + (state.bouquetCount || 0)
@@ -180,16 +205,16 @@ export default function Overlay({ projects }) {
         <p className="lede">Todo projeto nasce do que não se vê: eixo, apoio, encaixe. Um caule é arquitetura em miniatura.</p>
         <ul className="bom mono" aria-label="Lista de peças">
           <li>
-            <b>7×</b> barra 3L
+            <b>{bom.bars}×</b> barra
           </li>
           <li>
-            <b>7×</b> placa redonda 1×1
+            <b>{bom.plates}×</b> peça redonda 1×1
           </li>
           <li>
-            <b>6×</b> slope 45° 1×2
+            <b>{bom.slopes}×</b> slope 45° 1×2
           </li>
           <li>
-            <b>2×</b> folha curva 2×5
+            <b>{bom.leaves}×</b> folha curva 3×5
           </li>
         </ul>
       </section>
@@ -201,7 +226,9 @@ export default function Overlay({ projects }) {
           <br />
           <em>a forma aparece.</em>
         </h2>
-        <p className="lede">Vinte e duas placas curvas, cada uma no seu ângulo. O detalhe é o que transforma estrutura em lugar.</p>
+        <p className="lede">
+          {cap(extenso(bom.petals))} placas curvas, cada uma no seu ângulo. O detalhe é o que transforma estrutura em lugar.
+        </p>
       </section>
 
       <section ref={(el) => (refs.current.reveal = el)} className="ch ch--reveal">

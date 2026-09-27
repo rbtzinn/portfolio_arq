@@ -111,6 +111,7 @@ export default function Bouquet({ geos, material }) {
 
     // chegada: o buquê se monta rapidamente quando a câmera se aproxima
     const arrive = clamp(invLerp(0.8, 0.9, P))
+    data.batch.group.visible = P > 0.76
 
     // giro: automático + arraste com inércia
     B.spinVel *= Math.exp(-dt * 2.5)

@@ -15,8 +15,8 @@ function detect() {
 }
 
 export const TIERS = {
-  high: { dpr: [1, 1.75], post: true, dof: true, shadow: 2048, flowers: 130, seg: 28, bed: 1 },
-  mid: { dpr: [1, 1.5], post: true, dof: false, shadow: 1024, flowers: 80, seg: 20, bed: 0.8 },
+  high: { dpr: [1, 1.75], post: true, dof: true, shadow: 2048, flowers: 130, seg: 24, bed: 1 },
+  mid: { dpr: [1, 1.5], post: true, dof: false, shadow: 1024, flowers: 70, seg: 18, bed: 0.75 },
   low: { dpr: [0.8, 1.25], post: false, dof: false, shadow: 512, flowers: 44, seg: 14, bed: 0.6 },
 }
 

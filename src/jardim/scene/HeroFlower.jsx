@@ -75,7 +75,7 @@ export default function HeroFlower({ geos, material, decoys = 90 }) {
     real.forEach((p, i) => {
       p.f = i / (real.length - 1)
       p.theta = i * 2.39996
-      p.R = 7 + (i % 3) * 1.4
+      p.R = 5 + (i % 3) * 0.9
     })
     state.heroCount = parts.length - decoys
     return b
@@ -88,6 +88,9 @@ export default function HeroFlower({ geos, material, decoys = 90 }) {
   useFrame(({ clock }) => {
     const t = clock.elapsedTime
     const P = state.p
+    // a câmera já passou pela flor: sai do render
+    batch.group.visible = P < 0.72
+    if (!batch.group.visible) return
     let snapped = 0
     const now = performance.now()
 

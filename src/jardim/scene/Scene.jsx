@@ -33,6 +33,8 @@ function Effects({ tier }) {
 
 function Ready() {
   const frames = useRef(0)
+  const gl = useThree((s) => s.gl)
+  if (typeof window !== 'undefined') window.__gl = gl
   useFrame(() => {
     frames.current++
     if (frames.current === 3) {
@@ -46,7 +48,7 @@ function Ready() {
 export default function Scene({ tier, projects }) {
   const geos = useMemo(() => buildGeometries(tier.seg), [tier.seg])
   // o jardim é visto de mais longe: versão mais leve das mesmas peças
-  const geosLow = useMemo(() => buildGeometries(Math.max(12, tier.seg - 10)), [tier.seg])
+  const geosLow = useMemo(() => buildGeometries(tier.seg >= 24 ? 16 : tier.seg >= 18 ? 14 : 12), [tier.seg])
   const material = useMemo(() => createABS(), [])
 
   return (

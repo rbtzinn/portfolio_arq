@@ -4,7 +4,7 @@ import { PerformanceMonitor } from '@react-three/drei'
 import * as THREE from 'three'
 import Scene from './scene/Scene.jsx'
 import Overlay from './ui/Overlay.jsx'
-import { TIERS, initialTier } from './bricks/quality.js'
+import { TIERS, initialTier, isMobile } from './bricks/quality.js'
 import { setupScroll } from './lib/scroll.js'
 import { projects } from '../data/projects.js'
 import { useInput } from './lib/input.js'
@@ -48,7 +48,7 @@ export default function App() {
         >
           <PerformanceMonitor
             flipflops={3}
-            bounds={(r) => (r > 90 ? [50, 90] : [28, 50])}
+            bounds={(r) => (isMobile ? [24, 34] : [Math.min(48, r * 0.75), Math.min(58, r * 0.95)])}
             onDecline={() => setDegrade((d) => Math.min(2, d + 1))}
           />
           <Scene tier={tier} projects={list} />

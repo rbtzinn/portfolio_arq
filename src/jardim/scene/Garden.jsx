@@ -50,6 +50,9 @@ const _q = new THREE.Quaternion()
 const _e = new THREE.Euler()
 const _v = new THREE.Vector3()
 const _one = new THREE.Vector3(1, 1, 1)
+const _pm = new THREE.Matrix4()
+const _fr = new THREE.Frustum()
+const _sph = new THREE.Sphere()
 
 export default function Garden({ geos, material, tier, projects = [] }) {
   const camera = useThree((s) => s.camera)
@@ -138,6 +141,7 @@ export default function Garden({ geos, material, tier, projects = [] }) {
           t0: bed.t0 + r() * 0.02,
           span: 0.028,
           parts: fp,
+          h: height + 4,
           F: new THREE.Matrix4(),
         }
         fp.forEach((p, i) => {
@@ -155,7 +159,7 @@ export default function Garden({ geos, material, tier, projects = [] }) {
         if (placed.some((p) => Math.hypot(p.x - x, p.z - z) < 1.6)) continue
         if (bed.hero && Math.hypot(x, z) < 2.5) continue
         const rp = buildRosette(r, r() < 0.5 ? C.leaf : C.sageDark)
-        const flower = { x, z, y: top, rotY: r() * 6.28, phase: r() * 10, t0: bed.t0 + 0.004 + r() * 0.01, span: 0.012, parts: rp, F: new THREE.Matrix4() }
+        const flower = { x, z, y: top, rotY: r() * 6.28, phase: r() * 10, t0: bed.t0 + 0.004 + r() * 0.01, span: 0.012, parts: rp, h: 3, F: new THREE.Matrix4() }
         rp.forEach((p, k) => {
           p.flower = flower
           p.k = k / rp.length
@@ -200,9 +204,11 @@ export default function Garden({ geos, material, tier, projects = [] }) {
     studMesh.frustumCulled = false
     const col = new THREE.Color()
     studs.forEach((s, i) => {
+      s.col = new THREE.Color(s.c)
       studMesh.setMatrixAt(i, _m.makeTranslation(s.x, s.y, s.z))
-      studMesh.setColorAt(i, col.set(s.c))
+      studMesh.setColorAt(i, s.col)
     })
+    studMesh.count = 0
     studMesh.instanceColor.needsUpdate = true
 
     // placas-base: uma malha por canteiro para poder brotar junto com as flores
@@ -234,7 +240,7 @@ export default function Garden({ geos, material, tier, projects = [] }) {
       }))
     state.labels = labels
     state.gardenCount = parts.length + planterParts.length
-    return { flowers, batch, planters, studMesh, slabGroup, slabMeshes, beds, studs, labels, lastP: -1 }
+    return { flowers, batch, planters, studMesh, slabGroup, slabMeshes, beds, studs, studSlot: new Int32Array(studs.length).fill(-1), labels, lastP: -1 }
   }, [geos, material, tier.flowers, tier.bed])
 
   useEffect(
@@ -255,9 +261,23 @@ export default function Garden({ geos, material, tier, projects = [] }) {
     if (root.current) root.current.visible = P > 0.07
     const now = performance.now()
 
-    // plantas: brotam peça por peça, de baixo para cima
+    // plantas: brotam peça por peça, de baixo para cima.
+    // Culling por flor + compactação de instâncias: só o visível vai para a GPU.
+    _pm.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+    _fr.setFromProjectionMatrix(_pm)
+    data.batch.begin()
     for (const fl of data.flowers) {
       const g0 = (P - fl.t0) / fl.span
+      if (g0 <= 0) {
+        for (const p of fl.parts) p.was = false
+        continue
+      }
+      _sph.center.set(fl.x, fl.y + fl.h * 0.5, fl.z)
+      _sph.radius = fl.h * 0.6 + 4
+      if (!_fr.intersectsSphere(_sph)) {
+        grown += fl.parts.length * (g0 >= 1.25 ? 1 : 0)
+        continue
+      }
       const sway = clamp(g0 - 1, 0, 1)
       _e.set(Math.sin(t * 0.9 + fl.phase) * 0.025 * sway, fl.rotY, Math.cos(t * 0.7 + fl.phase) * 0.025 * sway, 'YXZ')
       _q.setFromEuler(_e)
@@ -265,40 +285,44 @@ export default function Garden({ geos, material, tier, projects = [] }) {
       for (const p of fl.parts) {
         const a = clamp((g0 - p.k * 0.75) / 0.25)
         if (a <= 0) {
-          _m.makeScale(0, 0, 0)
-          if (p.was) p.was = false
-        } else {
+          p.was = false
+          continue
+        }
+        if (a < 1) {
           const s = easeOutBack(a, 2.2)
           const drop = (1 - smooth(a)) * 1.6
           _t.makeTranslation(0, drop, 0)
           _s.makeScale(s, s, s)
           _m.multiplyMatrices(fl.F, _t).multiply(p.matrix).multiply(_s)
-          if (a >= 1) {
-            grown++
-            if (!p.was) {
-              p.was = true
-              if (Math.random() < 0.08 && Math.abs(state.velocity) < 3) click({ pitch: 1.4, gain: 0.25 })
-            }
+        } else {
+          _m.multiplyMatrices(fl.F, p.matrix)
+          grown++
+          if (!p.was) {
+            p.was = true
+            if (Math.random() < 0.08 && Math.abs(state.velocity) < 3) click({ pitch: 1.4, gain: 0.25 })
           }
         }
-        data.batch.set(p, _m)
+        data.batch.push(p, _m)
       }
     }
-    data.batch.commit()
+    data.batch.end()
 
     if (data.planters) {
+      data.planters.begin()
       for (const p of data.planters.parts) {
         const a = clamp((P - p.bed.t0 + 0.012 - p.order * 0.006) / 0.012)
-        if (a <= 0) _m.makeScale(0, 0, 0)
-        else {
+        if (a <= 0) continue
+        if (a < 1) {
           const s = easeOutBack(a, 1.6)
           _t.makeTranslation(0, (1 - smooth(a)) * 3, 0)
           _m.multiplyMatrices(_t, p.matrix).multiply(_s.makeScale(1, s, 1))
-          if (a >= 1) grown++
+        } else {
+          _m.copy(p.matrix)
+          grown++
         }
-        data.planters.set(p, _m)
+        data.planters.push(p, _m)
       }
-      data.planters.commit()
+      data.planters.end()
     }
     state.gardenGrown = grown
 
@@ -312,14 +336,25 @@ export default function Garden({ geos, material, tier, projects = [] }) {
         const s = easeOutBack(a, 1.4)
         m.scale.set(Math.max(0.001, s), Math.max(0.001, a), Math.max(0.001, s))
       }
+      // compacta: só pinos já brotados ocupam slots
+      let n = 0
+      let colorDirty = false
       for (let i = 0; i < data.studs.length; i++) {
         const st = data.studs[i]
         const a = clamp((bedA(st.bed) - 0.5 - ((i * 7) % 13) / 26) * 4)
-        if (a <= 0) _m.makeScale(0, 0, 0)
-        else _m.makeScale(a, a, a).setPosition(st.x, st.y, st.z)
-        data.studMesh.setMatrixAt(i, _m)
+        if (a <= 0) continue
+        _m.makeScale(a, a, a).setPosition(st.x, st.y, st.z)
+        data.studMesh.setMatrixAt(n, _m)
+        if (data.studSlot[n] !== i) {
+          data.studSlot[n] = i
+          data.studMesh.setColorAt(n, st.col)
+          colorDirty = true
+        }
+        n++
       }
+      data.studMesh.count = n
       data.studMesh.instanceMatrix.needsUpdate = true
+      if (colorDirty) data.studMesh.instanceColor.needsUpdate = true
     }
 
     // rótulos dos projetos: projeção manual para o DOM (sem re-render)
