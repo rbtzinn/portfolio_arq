@@ -23,8 +23,10 @@ export function useInput() {
     const onDown = (e) => {
       if (isUI(e.target)) return
       down = { x: e.clientX, lx: e.clientX, t: performance.now(), moved: 0 }
+      state.bouquet.dragging = bouquetActive()
     }
     const onUp = (e) => {
+      state.bouquet.dragging = false
       if (!down) return
       const quick = performance.now() - down.t < 450 && down.moved < 10
       down = null

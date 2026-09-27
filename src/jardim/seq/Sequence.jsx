@@ -142,7 +142,15 @@ export default function Sequence({ onManifest }) {
       // ---- buquê: giro + híbrido turntable (Blender) / peças (Three.js) ----
       const B = state.bouquet
       B.spinVel *= Math.exp(-dt * 2.5)
-      B.spin += dt * 0.22 + B.spinVel * dt
+      B.spin += B.spinVel * dt
+      // em repouso, assenta no ângulo renderizado mais próximo: imagem do Blender nítida,
+      // sem crossfade entre ângulos (o crossfade só aparece durante o giro, como motion blur)
+      const nTurn = player.src.turn.length
+      if (nTurn && !B.dragging && Math.abs(B.spinVel) < 0.05 && B.mode === 'idle') {
+        const step = (Math.PI * 2) / nTurn
+        const A = bouquetAngle(P)
+        B.spin += (Math.round(A / step) * step - A) * (1 - Math.exp(-7 * dt))
+      }
       const arrived = P >= 0.93
       let turnTarget = 0
       if (player.turnReady() && P > 0.86) {
