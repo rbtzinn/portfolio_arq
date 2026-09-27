@@ -70,6 +70,9 @@ for variant in ("desktop", "mobile"):
     v = {}
     for mode in ("main", "lit", "turn"):
         files = sorted(glob.glob(os.path.join(RENDERS, f"{variant}_{mode}_*.png")))
+        # celular: turntable a cada 6° (o crossfade entre ângulos cobre) — metade do peso
+        if variant == "mobile" and mode == "turn":
+            files = files[::2]
         if not files:
             continue
         idx = [int(re.search(r"_(\d+)\.png$", f).group(1)) for f in files]
