@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-RENDERS = os.path.join(HERE, "renders")
+RENDERS = os.environ.get("RENDERS_DIR") or os.path.join(HERE, "renders")
 OUT = os.path.join(ROOT, "public", "seq")
 
 ap = argparse.ArgumentParser()
@@ -68,7 +68,7 @@ manifest["variants"] = {}
 jobs = []
 for variant in ("desktop", "mobile"):
     v = {}
-    for mode in ("main", "lit"):
+    for mode in ("main", "lit", "turn"):
         files = sorted(glob.glob(os.path.join(RENDERS, f"{variant}_{mode}_*.png")))
         if not files:
             continue
