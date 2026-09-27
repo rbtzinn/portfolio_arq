@@ -14,12 +14,17 @@ export default function Sequence({ onManifest }) {
     let last = performance.now()
     let lastFs = 0
     let dir = 1
+    let fsDisp = 0
     let pointerSeen = false
     const onPointer = () => (pointerSeen = true)
     window.addEventListener('pointermove', onPointer, { once: true })
 
     const init = async () => {
-      const [manifest, ext] = await Promise.all([fetch('/seq/manifest.json').then((r) => r.json()), detectFormat()])
+      const forced = new URLSearchParams(location.search).get('fmt')
+      const [manifest, ext] = await Promise.all([
+        fetch('/seq/manifest.json').then((r) => r.json()),
+        forced === 'webp' || forced === 'avif' ? forced : detectFormat(),
+      ])
       if (!alive) return
       const portrait = window.innerWidth / window.innerHeight < 0.9
       const variant = portrait && manifest.variants.mobile ? 'mobile' : 'desktop'
@@ -74,7 +79,13 @@ export default function Sequence({ onManifest }) {
 
       const m = state.seq.manifest
       const P = state.p
-      const fs = clamp(P / m.seqEnd) * (m.frames - 1)
+      // em movimento: posição fracionária (crossfade); parado: assenta no frame inteiro
+      // mais próximo, sem dupla exposição
+      const target = clamp(P / m.seqEnd) * (m.frames - 1)
+      const idle = Math.abs(state.progress - state.p) < 0.0004
+      fsDisp = idle ? damp(fsDisp, Math.round(target), 9, dt) : target
+      if (idle && Math.abs(fsDisp - Math.round(target)) < 0.01) fsDisp = Math.round(target)
+      const fs = fsDisp
       if (Math.abs(fs - lastFs) > 0.01) dir = fs > lastFs ? 1 : -1
       lastFs = fs
 

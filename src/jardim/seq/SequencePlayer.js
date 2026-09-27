@@ -192,7 +192,8 @@ export class SequencePlayer {
     const A = this.decode('main', a) || this.nearest('main', a)
     const B = t > 0.02 ? this.decode('main', b) : null
     this.drawBitmap(ctx, A)
-    if (B && B !== A) this.drawBitmap(ctx, B, t)
+    // crossfade curto no meio do intervalo: menos tempo em dupla exposição
+    if (B && B !== A) this.drawBitmap(ctx, B, smooth(clamp((t - 0.2) / 0.6)))
 
     // pré-decodifica à frente na direção do scroll
     for (let k = 1; k <= 6; k++) this.decode('main', clamp(a + k * dir, 0, this.src.main.length - 1) | 0)

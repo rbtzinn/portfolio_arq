@@ -24,7 +24,7 @@ OUT = os.path.join(ROOT, "public", "seq")
 ap = argparse.ArgumentParser()
 ap.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
 ap.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or "ffmpeg")
-ap.add_argument("--crf", type=int, default=26)
+ap.add_argument("--crf", type=int, default=30)
 ap.add_argument("--webp-q", type=int, default=72)
 args = ap.parse_args()
 
