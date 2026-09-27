@@ -111,6 +111,7 @@ export class SequencePlayer {
       createImageBitmap(blob)
         .then((bmp) => {
           this.bitmaps.set(key, bmp)
+          this.dirty = true // um frame melhor chegou: vale redesenhar
           while (this.bitmaps.size > this.maxBitmaps) {
             const [k, old] = this.bitmaps.entries().next().value
             this.bitmaps.delete(k)
@@ -154,7 +155,16 @@ export class SequencePlayer {
     return [lo, hi, (fs - s[lo]) / (s[hi] - s[lo])]
   }
 
+  // Pula o desenho se nada mudou desde o último quadro (economia de bateria/GPU).
+  needsDraw(sig) {
+    if (sig === this.lastSig && !this.dirty) return false
+    this.lastSig = sig
+    this.dirty = false
+    return true
+  }
+
   resize(w, h, dpr) {
+    this.dirty = true
     const r = Math.min(dpr, 2, Math.max(1, (this.iw * 1.25) / w))
     this.canvas.width = Math.round(w * r)
     this.canvas.height = Math.round(h * r)

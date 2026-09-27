@@ -134,13 +134,10 @@ export default function Sequence({ onManifest }) {
       const W = window.innerWidth
       const H = window.innerHeight
       const torchAmt = 1 - smooth(invLerp(0.07, 0.1, P))
-      player.draw(fs, {
-        zoom: 1 + 0.025 * par,
-        px: -pt.sx * 10 * par,
-        py: pt.sy * 7 * par,
-        dir,
-        torch: { x: (pt.sx * 0.5 + 0.5) * W, y: (-pt.sy * 0.5 + 0.5) * H, amount: torchAmt },
-      })
+      const torch = { x: (pt.sx * 0.5 + 0.5) * W, y: (-pt.sy * 0.5 + 0.5) * H, amount: torchAmt }
+      const zoom = 1 + 0.025 * par
+      const px = -pt.sx * 10 * par
+      const py = pt.sy * 7 * par
 
       // ---- buquê: giro + híbrido turntable (Blender) / peças (Three.js) ----
       const B = state.bouquet
@@ -155,10 +152,16 @@ export default function Sequence({ onManifest }) {
       // explodir: troca instantânea para as peças (o movimento esconde a troca)
       if (B.request === 'explode' || B.mode !== 'idle') B.turnAlpha = 0
       else B.turnAlpha = damp(B.turnAlpha, turnTarget, turnTarget > B.turnAlpha ? 5 : 14, dt)
-      if (B.turnAlpha > 0.001) {
-        const n = player.src.turn.length
-        const a = bouquetAngle(P) / (Math.PI * 2)
-        player.drawTurn((a - Math.floor(a)) * n, B.turnAlpha)
+      const nT = player.src.turn.length
+      const ang = bouquetAngle(P) / (Math.PI * 2)
+      const turnK = (ang - Math.floor(ang)) * nT
+
+      // só redesenha quando algo visível mudou (economia de bateria/GPU)
+      const r2 = (v) => Math.round(v * 100)
+      const sig = [r2(fs), r2(torch.x / 10), r2(torch.y / 10), r2(torchAmt), r2(zoom * 10), r2(px), r2(py), r2(B.turnAlpha), B.turnAlpha > 0.001 ? r2(turnK) : 0, W, H].join()
+      if (player.needsDraw(sig)) {
+        player.draw(fs, { zoom, px, py, dir, torch })
+        if (B.turnAlpha > 0.001) player.drawTurn(turnK, B.turnAlpha)
       }
 
       // peças montadas (dados exportados por frame): cada nova peça encaixada "estala"
