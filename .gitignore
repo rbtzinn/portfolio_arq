@@ -27,3 +27,4 @@ blender/build
 blender/renders
 tests/.shots
 tests/.shots-prod
+blender/renders_old

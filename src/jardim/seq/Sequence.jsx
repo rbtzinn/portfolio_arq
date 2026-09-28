@@ -22,6 +22,12 @@ export default function Sequence({ onManifest }) {
     const onPointer = () => (pointerSeen = true)
     window.addEventListener('pointermove', onPointer, { once: true })
 
+    const coarse = matchMedia('(pointer: coarse)').matches
+    // tamanho do palco: no celular, a altura grande da tela (barra de endereço escondida)
+    const stageSize = () => {
+      const el = canvas.current.parentElement
+      return [el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight, window.devicePixelRatio || 1]
+    }
     let manifest = null
     let ext = 'webp'
     let readySent = false
@@ -42,7 +48,7 @@ export default function Sequence({ onManifest }) {
       player?.dispose()
       const pl = new SequencePlayer(canvas.current, manifest, variant, ext)
       player = pl
-      pl.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+      pl.resize(...stageSize())
       state.seq = { manifest, variant, player: pl }
       state.totalPieces = manifest.built[manifest.built.length - 1] + (state.bouquetCount || 0)
       onManifest?.(manifest, variant)
@@ -96,10 +102,17 @@ export default function Sequence({ onManifest }) {
     }
     init()
 
+    // No celular, a barra de endereço some/aparece ao rolar e dispara 'resize' só na altura.
+    // Isso não pode redimensionar o canvas (a imagem "pularia" e o buffer da GPU seria recriado
+    // no meio do scroll): só largura ou orientação contam; a altura é a maior da tela (lvh).
+    let lastW = window.innerWidth
     const onResize = () => {
       if (!player) return
+      const w = window.innerWidth
+      if (coarse && w === lastW) return
+      lastW = w
       if (pickVariant() !== state.seq.variant) start(pickVariant())
-      else player.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+      else player.resize(...stageSize())
     }
     window.addEventListener('resize', onResize)
 
@@ -107,7 +120,7 @@ export default function Sequence({ onManifest }) {
       const now = performance.now()
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
-      state.p = damp(state.p, state.progress, 7, dt)
+      state.p = damp(state.p, state.progress, coarse ? 14 : 7, dt)
       const pt = state.pointer
       const t = now / 1000
       // sem mouse (toque) a lanterna passeia sozinha; giroscópio assume quando existe

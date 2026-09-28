@@ -46,8 +46,11 @@ export class SequencePlayer {
     this.blobs = { main: new Map(), lit: new Map(), turn: new Map() }
     this.bitmaps = new Map() // "modo:i" → ImageBitmap (LRU)
     this.decoding = new Set()
+    this.uploads = new Map() // decodificados aguardando envio à GPU
+    this.uploadBudget = 1
     // texturas/bitmaps decodificados mantidos (janela em volta do frame atual)
     this.maxBitmaps = matchMedia('(pointer: coarse)').matches ? 22 : 34
+    this.ahead = 10 // frames pré-carregados à frente na direção da rolagem
     this.iw = this.v.size[0]
     this.ih = this.v.size[1]
     this.fit = { s: 1, x: 0, y: 0, w: 0, h: 0 }
@@ -107,7 +110,7 @@ export class SequencePlayer {
     await Promise.all(Array.from({ length: concurrency }, worker))
   }
 
-  decode(mode, i) {
+  decode(mode, i, urgent = false) {
     const key = mode + ':' + i
     if (this.bitmaps.has(key)) {
       const b = this.bitmaps.get(key)
@@ -115,30 +118,44 @@ export class SequencePlayer {
       this.bitmaps.set(key, b) // renova no LRU
       return b
     }
+    // decodificado, esperando a vez de ir para a GPU: o frame da tela sobe na hora,
+    // os de pré-carga no máximo um por quadro (vários envios num quadro = travada)
+    const ready = this.uploads.get(key)
+    if (ready) {
+      if (!urgent && this.uploadBudget <= 0) return null
+      if (!urgent) this.uploadBudget--
+      this.uploads.delete(key)
+      return this.store(key, this.glr.upload(ready), ready)
+    }
     const blob = this.blobs[mode].get(i)
     // no máximo 3 decodificações ao mesmo tempo: as mais próximas pedem primeiro
-    if (blob && !this.decoding.has(key) && this.decoding.size < 3) {
+    if (blob && !this.decoding.has(key) && this.decoding.size < 3 && this.uploads.size < 8) {
       this.decoding.add(key)
       createImageBitmap(blob, { premultiplyAlpha: 'premultiply', imageOrientation: 'none' })
         .then((bmp) => {
           if (this.aborted) return bmp.close?.()
-          let entry = bmp
-          if (this.glr) {
-            entry = this.glr.upload(bmp) // vai para a GPU uma vez
-            bmp.close?.()
-          }
-          this.bitmaps.set(key, entry)
           this.dirty = true // um frame melhor chegou: vale redesenhar
-          while (this.bitmaps.size > this.maxBitmaps) {
-            const [k, old] = this.bitmaps.entries().next().value
-            this.bitmaps.delete(k)
-            this.free(old)
+          if (this.glr) {
+            this.uploads.set(key, bmp) // sobe para a GPU no próximo quadro, com orçamento
+            return
           }
+          this.store(key, bmp)
         })
         .catch(() => {})
         .finally(() => this.decoding.delete(key))
     }
     return null
+  }
+
+  store(key, entry, bmp) {
+    bmp?.close?.()
+    this.bitmaps.set(key, entry)
+    while (this.bitmaps.size > this.maxBitmaps) {
+      const [k, old] = this.bitmaps.entries().next().value
+      this.bitmaps.delete(k)
+      this.free(old)
+    }
+    return entry
   }
 
   free(entry) {
@@ -226,12 +243,13 @@ export class SequencePlayer {
     const loc = this.locate('main', fs)
     if (!loc) return
     const [a, b, t] = loc
-    const A = this.decode('main', a) || this.nearest('main', a)
-    const B = t > 0.02 ? this.decode('main', b) : null
+    this.uploadBudget = 1
+    const A = this.decode('main', a, true) || this.nearest('main', a)
+    const B = t > 0.02 ? this.decode('main', b, true) : null
     if (this.glr) return this.drawGL(fs, A, B, t, torch, dir, a)
     this.drawBitmap(ctx, A)
     // crossfade curto no meio do intervalo: menos tempo em dupla exposição
-    if (B && B !== A) this.drawBitmap(ctx, B, smooth(clamp((t - 0.2) / 0.6)))
+    if (B && B !== A) this.drawBitmap(ctx, B, t /* frames com motion blur: crossfade linear e contínuo */)
 
     // pré-decodifica à frente na direção do scroll
     for (let k = 1; k <= 6; k++) this.decode('main', clamp(a + k * dir, 0, this.src.main.length - 1) | 0)
@@ -274,14 +292,14 @@ export class SequencePlayer {
     let lt = 0
     if (torch && torch.amount > 0.001 && this.src.lit.length) {
       const l = this.locate('lit', Math.min(fs, this.src.lit[this.src.lit.length - 1]))
-      LA = this.decode('lit', l[0]) || this.nearest('lit', l[0])
-      LB = l[2] > 0.02 ? this.decode('lit', l[1]) : null
+      LA = this.decode('lit', l[0], true) || this.nearest('lit', l[0])
+      LB = l[2] > 0.02 ? this.decode('lit', l[1], true) : null
       lt = l[2]
     }
     this.glr.drawMain({
       A,
       B: B && B !== A ? B : null,
-      t: smooth(clamp((t - 0.2) / 0.6)),
+      t: t /* frames com motion blur: crossfade linear e contínuo */,
       LA,
       LB,
       lt,
@@ -292,7 +310,7 @@ export class SequencePlayer {
 
   prefetch(a, dir) {
     const n = this.src.main.length
-    for (let k = 1; k <= 6; k++) this.decode('main', clamp(a + k * dir, 0, n - 1) | 0)
+    for (let k = 1; k <= this.ahead; k++) this.decode('main', clamp(a + k * dir, 0, n - 1) | 0)
     this.decode('main', clamp(a - dir, 0, n - 1) | 0)
   }
 
@@ -304,9 +322,9 @@ export class SequencePlayer {
     const i0 = ((Math.floor(k) % n) + n) % n
     const i1 = (i0 + 1) % n
     const t = k - Math.floor(k)
-    const A = this.decode('turn', i0) || this.nearestTurn(i0)
+    const A = this.decode('turn', i0, true) || this.nearestTurn(i0)
     if (!A) return false
-    const B = t > 0.02 ? this.decode('turn', i1) : null
+    const B = t > 0.02 ? this.decode('turn', i1, true) : null
     for (let d = 1; d <= 4; d++) this.decode('turn', (i0 + d) % n)
     const [x0, y0, x1, y1] = this.v.turn.crop
     const [rw, rh] = this.v.turn.res
@@ -358,6 +376,8 @@ export class SequencePlayer {
 
   dispose() {
     this.aborted = true
+    for (const b of this.uploads.values()) b.close?.()
+    this.uploads.clear()
     for (const b of this.bitmaps.values()) this.free(b)
     this.bitmaps.clear()
   }

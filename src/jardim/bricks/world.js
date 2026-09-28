@@ -89,12 +89,12 @@ export function buildHeroWorld(decoys = 60) {
   stemParts
     .sort((a, b) => a.tp.y - b.tp.y)
     .forEach((p, i, arr) => {
-      p.t0 = lerp(CH.stem[0] + 0.005, CH.stem[1] - 0.04, i / (arr.length - 1))
-      p.dur = 0.045
+      p.t0 = lerp(CH.stem[0] + 0.005, CH.stem[1] - 0.06, i / (arr.length - 1))
+      p.dur = 0.06
     })
   headParts.forEach((p, i, arr) => {
-    p.t0 = lerp(CH.bloom[0] + 0.005, CH.bloom[1] - 0.045, i / (arr.length - 1))
-    p.dur = 0.035
+    p.t0 = lerp(CH.bloom[0] + 0.005, CH.bloom[1] - 0.055, i / (arr.length - 1))
+    p.dur = 0.05
   })
   for (const p of parts) {
     const th = r() * Math.PI * 2
@@ -116,6 +116,29 @@ export function buildHeroWorld(decoys = 60) {
     p.R = 5 + (i % 3) * 0.9
   })
   return { parts, count: real.length }
+}
+
+// ---- curvas do encaixe (compartilhadas por flor-herói, jardim e props) ----
+const easeInOutSine = (t) => -(Math.cos(Math.PI * t) - 1) / 2
+const easeInQuad = (t) => t * t
+// altura acima do pino: paira (3) → desce acelerando → afunda (-0.14) → volta a 0
+function snapLift(a, hover = 3) {
+  if (a < 0.6) return hover
+  if (a < 0.84) return lerp(hover, -0.14, easeInQuad((a - 0.6) / 0.24))
+  const t = (a - 0.84) / 0.16
+  return -0.14 * Math.exp(-t * 4) * Math.cos(t * 7)
+}
+// achatamento elástico logo após o impacto
+function snapSquash(a) {
+  if (a < 0.8 || a >= 1) return 0
+  const t = (a - 0.8) / 0.2
+  return Math.sin(Math.PI * Math.min(1, t * 1.6)) * Math.exp(-t * 2.5) * 0.12
+}
+// queda de cima até o encaixe (jardim): aparece acima, cai pelo eixo vertical, estala
+function dropLift(a, h = 7) {
+  if (a < 0.78) return lerp(h, -0.12, easeInQuad(a / 0.78))
+  const t = (a - 0.78) / 0.22
+  return -0.12 * Math.exp(-t * 4) * Math.cos(t * 7)
 }
 
 const _p = new THREE.Vector3()
@@ -168,23 +191,28 @@ export function poseHero(world, P, emit) {
     }
     const a = clamp((P - p.t0) / p.dur)
     if (a > 0) {
-      const fly = easeInOutCubic(clamp(a / 0.72))
-      const settle = smooth(clamp((a - 0.62) / 0.38))
+      // 1) voo em arco até pairar acima do pino, já alinhada
+      // 2) desce acelerando pelo eixo do pino e afunda um pouco (o "clique")
+      // 3) volta à posição com um leve rebote
       _up.set(0, 1, 0).applyQuaternion(p.tq)
-      _p.lerp(_a.copy(p.tp).addScaledVector(_up, 2.4 * (1 - settle)), fly)
+      const fly = easeInOutSine(clamp(a / 0.6))
+      const lift = snapLift(a)
+      _a.copy(p.tp).addScaledVector(_up, lift)
+      // arco lateral: a peça contorna em vez de atravessar em linha reta
+      const arc = Math.sin(Math.PI * fly) * 1.4 * (1 - fly)
+      _p.lerp(_a, fly)
+      _p.x += Math.cos(p.theta) * arc
+      _p.z += Math.sin(p.theta) * arc
       _q2.copy(p.tq)
-      _q.slerp(_q2, easeOutCubic(clamp(a / 0.8)))
+      _q.slerp(_q2, easeOutCubic(clamp(a / 0.62)))
     }
     if (a >= 1) built++
     _s.copy(p.ts)
-    // estalo do encaixe, medido em progresso (renderizável)
-    const x = (P - (p.t0 + p.dur)) / 0.01
-    if (x > 0 && x < 2) {
-      const k = Math.exp(-x * 3) * Math.cos(x * 9) * 0.14
-      _s.y *= 1 - k
-      _s.x *= 1 + k * 0.5
-      _s.z *= 1 + k * 0.5
-    }
+    // estalo: achata no impacto e volta elástico (dentro da própria duração da peça)
+    const k = snapSquash(a)
+    _s.y *= 1 - k
+    _s.x *= 1 + k * 0.45
+    _s.z *= 1 + k * 0.45
     // montadas giram com a flor; soltas ficam no espaço do mundo
     _m.compose(_p, _q, _s)
     if (a > 0 || g > 0) emit(p, _m.premultiply(_g))
@@ -294,7 +322,7 @@ export function buildGardenWorld({ budget = 1, density = 1 } = {}) {
       if (bed.far) height += 2 + r() * 3
       const parts = buildFlower({ kind, height, rand: r, head, lean: 0.1 + r() * 0.1 })
       parts.forEach((p, i) => (p.k = i / parts.length))
-      flowers.push({ x: pl.x, z: pl.z, y: top, rotY: r() * Math.PI * 2, phase: r() * 10, t0: bed.t0 + r() * 0.02, span: 0.028, parts, h: height + 4 })
+      flowers.push({ x: pl.x, z: pl.z, y: top, rotY: r() * Math.PI * 2, phase: r() * 10, t0: bed.t0 + r() * 0.02, span: 0.045, parts, h: height + 4 })
     }
     const nr = Math.round(((sw * sd) / 22) * density)
     for (let i = 0; i < nr; i++) {
@@ -304,7 +332,7 @@ export function buildGardenWorld({ budget = 1, density = 1 } = {}) {
       if (bed.hero && Math.hypot(x, z) < 2.5) continue
       const parts = buildRosette(r, r() < 0.5 ? C.leaf : C.sageDark)
       parts.forEach((p, k) => (p.k = k / parts.length))
-      flowers.push({ x, z, y: top, rotY: r() * 6.28, phase: r() * 10, t0: bed.t0 + 0.004 + r() * 0.01, span: 0.012, parts, h: 3 })
+      flowers.push({ x, z, y: top, rotY: r() * 6.28, phase: r() * 10, t0: bed.t0 + 0.004 + r() * 0.01, span: 0.02, parts, h: 3 })
     }
   }
 
@@ -365,15 +393,16 @@ export function poseGarden(world, P, emit) {
     _q.setFromEuler(_e)
     _g.compose(_p.set(fl.x, fl.y, fl.z), _q, _one)
     for (const p of fl.parts) {
-      const a = clamp((g0 - p.k * 0.75) / 0.25)
+      // peças caem em cascata (de baixo para cima) e encaixam no pino
+      const a = clamp((g0 - p.k * 0.6) / 0.4)
       if (a <= 0) {
         emit(p, null)
         continue
       }
       if (a < 1) {
-        const s = easeOutBack(a, 2.2)
-        _t.makeTranslation(0, (1 - smooth(a)) * 1.6, 0)
-        _m.multiplyMatrices(_g, _t).multiply(p.matrix).multiply(_sm.makeScale(s, s, s))
+        const k = snapSquash(a)
+        _t.makeTranslation(0, dropLift(a), 0)
+        _m.multiplyMatrices(_g, _t).multiply(p.matrix).multiply(_sm.makeScale(1 + k * 0.45, 1 - k, 1 + k * 0.45))
       } else {
         _m.multiplyMatrices(_g, p.matrix)
         built++
@@ -382,15 +411,15 @@ export function poseGarden(world, P, emit) {
     }
   }
   for (const p of world.props) {
-    const a = clamp((P - p.t0 + 0.012 - p.order * 0.006) / 0.012)
+    const a = clamp((P - p.t0 + 0.012 - p.order * 0.008) / 0.02)
     if (a <= 0) {
       emit(p, null)
       continue
     }
     if (a < 1) {
-      const s = easeOutBack(a, 1.6)
-      _t.makeTranslation(0, (1 - smooth(a)) * 3, 0)
-      _m.multiplyMatrices(_t, p.matrix).multiply(_sm.makeScale(1, s, 1))
+      const k = snapSquash(a)
+      _t.makeTranslation(0, dropLift(a, 5), 0)
+      _m.multiplyMatrices(_t, p.matrix).multiply(_sm.makeScale(1 + k * 0.45, 1 - k, 1 + k * 0.45))
     } else {
       _m.copy(p.matrix)
       built++

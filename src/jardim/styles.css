@@ -42,7 +42,11 @@ html.lenis body {
 
 .stage {
   position: fixed;
-  inset: 0;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100lvh; /* altura estável: a barra de endereço do celular não redimensiona o palco */
   z-index: 0;
   touch-action: pan-y;
 }
