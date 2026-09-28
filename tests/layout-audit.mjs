@@ -1,4 +1,4 @@
-// Auditoria de layout da experiência /jardim/ com Playwright.
+// Auditoria de layout do site (experiência Botânica Modular) com Playwright.
 // Para cada viewport e ponto da narrativa verifica: overflow horizontal, textos cortados,
 // sobreposição de blocos de interface, contraste do texto sobre o frame e erros de rede/console.
 //
@@ -76,7 +76,11 @@ function inspect() {
 
   // contraste do texto do capítulo sobre o frame (lê o canvas; ignora scrims → conservador)
   const cv = document.querySelector('canvas.seq')
-  const ctx = cv?.getContext('2d')
+  // WebGL: lê pelo renderizador (o buffer não é preservado); 2D: getImageData
+  const glr = window.__state?.seq?.player?.glr
+  const ctx = glr
+    ? { getImageData: (x, y, w, h) => ({ data: glr.read(x, y, w, h) || new Uint8Array(w * h * 4) }) }
+    : cv?.getContext('2d')
   const lum = (r, g, b) => {
     const f = (c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
@@ -138,7 +142,7 @@ for (const vp of VIEWPORTS) {
   page.on('pageerror', (e) => errors.push('JS: ' + e.message))
   page.on('console', (m) => m.type() === 'error' && !/fonts|ERR_CERT|net::ERR_TOO_MANY/.test(m.text()) && errors.push('console: ' + m.text()))
   page.on('response', (r) => r.status() >= 400 && !r.url().includes('favicon') && errors.push(`HTTP ${r.status()} ${r.url()}`))
-  await page.goto(`${BASE}/jardim/?gate=0`, { waitUntil: 'load' })
+  await page.goto(`${BASE}/?gate=0`, { waitUntil: 'load' })
   await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
   await page.waitForTimeout(1200)
   for (const p of POINTS) {
@@ -162,7 +166,7 @@ if (!process.env.SKIP_ROBUST) {
     const page = await ctx.newPage()
     const errs = []
     page.on('pageerror', (e) => errs.push('JS: ' + e.message))
-    await page.goto(`${BASE}/jardim/?gate=0`)
+    await page.goto(`${BASE}/?gate=0`)
     await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
     const v1 = await page.evaluate(() => window.__state.seq.variant)
     await page.setViewportSize({ width: 844, height: 390 })
@@ -170,8 +174,9 @@ if (!process.env.SKIP_ROBUST) {
     const v2 = await page.evaluate(() => window.__state.seq.variant)
     const drawn = await page.evaluate(() => {
       const c = document.querySelector('canvas.seq')
-      const d = c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data
-      return d[0] + d[1] + d[2] > 0
+      const glr = window.__state.seq.player.glr
+      const d = glr ? glr.read(c.width >> 1, c.height >> 1, 1, 1) : c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data
+      return !!d && d[0] + d[1] + d[2] > 0
     })
     const issues = [...errs]
     if (!(v1 === 'mobile' && v2 === 'desktop')) issues.push(`troca de variante falhou: ${v1} → ${v2}`)
@@ -185,7 +190,7 @@ if (!process.env.SKIP_ROBUST) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ignoreHTTPSErrors: true })
     const page = await ctx.newPage()
     await page.route(new RegExp('^' + BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/seq/'), (r) => r.abort())
-    await page.goto(`${BASE}/jardim/?gate=0`)
+    await page.goto(`${BASE}/?gate=0`)
     const ok = await page
       .waitForSelector('text=Tentar de novo', { timeout: 20000 })
       .then(() => true)
@@ -200,7 +205,7 @@ if (!process.env.SKIP_ROBUST) {
   {
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, ignoreHTTPSErrors: true })
     const page = await ctx.newPage()
-    await page.goto(`${BASE}/jardim/?gate=0`)
+    await page.goto(`${BASE}/?gate=0`)
     await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
     const issues = []
     for (let i = 0; i < 8; i++) {

@@ -1,6 +1,7 @@
-# Helena Costa Arquitetura (React + Vite + Tailwind)
+# Helena Costa Arquitetura — Botânica Modular
 
-Projeto componentizado a partir do seu layout.
+Portfólio em forma de experiência imersiva: peças de montar se encaixam no scroll, viram uma
+flor, um jardim (cada canteiro é um projeto) e um buquê interativo.
 
 ## Rodar localmente
 ```bash
@@ -8,24 +9,20 @@ npm install
 npm run dev
 ```
 
-## Estrutura
-- `src/components/` componentes reutilizáveis (Navbar, Hero, etc.)
-- `src/components/common/Reveal.jsx` animação fade-up no scroll
-- `src/data/projects.js` dados do portfólio
-- `src/styles/global.css` estilos globais (fonts, smooth scroll, animação ken-burns)
+Variável opcional (Vercel → Settings → Environment Variables): `VITE_WHATSAPP_NUMBER` — ativa
+"Iniciar um projeto" e "Conversar sobre este projeto" no WhatsApp. Projetos exibidos nos
+canteiros: `src/data/projects.js`. Endereços antigos (`/jardim`, `/projetos/...`) redirecionam
+para a raiz (`vercel.json`).
 
-## Onde adicionar coisas novas (sugestões)
-- Novas seções: crie um componente em `src/components/sections/` e importe em `App.jsx`
-- Novos projetos: edite `src/data/projects.js`
-
-## Botânica Modular (`/jardim/`)
-Experiência imersiva, entrada separada do Vite (`jardim/index.html` → `src/jardim/`).
+## Como funciona
+Página única do Vite (`index.html` → `src/jardim/`).
 Nenhuma imagem externa: todas as peças (tijolos com pinos, placas curvas, barras, slopes)
 são geradas em código, renderizadas no Blender e servidas como sequências AVIF/WebP.
 
 **Como funciona**
-- Scroll 0 → 88%: sequência de frames pré-renderizada no Blender (Cycles), desenhada num
-  `<canvas>` 2D (`src/jardim/seq/`). Carregamento progressivo (1 a cada 16 frames, depois 8,
+- Scroll 0 → 88%: sequência de frames pré-renderizada no Blender (Cycles), desenhada com
+  WebGL (`src/jardim/seq/`): cada frame vira uma textura enviada à GPU uma vez; crossfade,
+  lanterna e buquê são contas de shader (canvas 2D só como reserva). Carregamento progressivo (1 a cada 16 frames, depois 8,
   4, 2, 1), decodificação fora da thread principal e crossfade entre frames.
 - Trecho escuro: a versão "iluminada" dos mesmos frames aparece por uma máscara que segue o
   cursor/giroscópio (lanterna).
@@ -61,3 +58,8 @@ são geradas em código, renderizadas no Blender e servidas como sequências AVI
 rodando): 8 viewports (1920×1080 até celular deitado) × 10 pontos da narrativa, procurando
 overflow, texto cortado, sobreposição de blocos, contraste sobre o frame real e erros; mais
 testes de girar o aparelho, falha de rede e foco por teclado. Screenshots em `tests/.shots/`.
+
+**Desempenho** — `npm run test:perf [url] [cpu]` rola a página num celular emulado (DPR 3,
+toque, CPU desacelerada) e mede quadros, tarefas longas e tempo de script/estilo/layout.
+No celular: WebP (decodifica mais rápido), sem grão/desfoque de fundo, escritas de DOM só
+quando algo muda e o 3D do buquê montado só perto do fim.

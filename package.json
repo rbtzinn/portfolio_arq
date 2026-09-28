@@ -1,5 +1,5 @@
 {
-  "name": "helena-costa-arq",
+  "name": "helena-costa-botanica-modular",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,7 +10,8 @@
     "assets:export": "node blender/export.mjs 240",
     "assets:render": "bash blender/render_all.sh",
     "assets:encode": "python blender/encode.py",
-    "test:layout": "node tests/layout-audit.mjs"
+    "test:layout": "node tests/layout-audit.mjs",
+    "test:perf": "node tests/perf-mobile.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",
@@ -18,19 +19,14 @@
     "@react-three/postprocessing": "^2.19.1",
     "gsap": "^3.15.0",
     "lenis": "^1.3.26",
-    "lucide-react": "^0.469.0",
     "postprocessing": "^6.39.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.13.0",
     "three": "^0.169.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
     "playwright-core": "^1.63.0",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.13",
     "vite": "^5.4.8"
   }
 }
