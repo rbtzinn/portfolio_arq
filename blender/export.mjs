@@ -243,6 +243,8 @@ fs.writeFileSync(
     turn: { frames: TURN_FRAMES, crop, res: RES },
     built: frames.map((f) => f.built),
     labels: { desktop: frames.map((f) => f.labels.desktop), mobile: frames.map((f) => f.labels.mobile) },
+    // tempo em que o canteiro de cada projeto termina de montar (flores: início + 0,02 + 0,045)
+    labelDone: garden.labels.map((L) => +(L.t0 + 0.07).toFixed(4)),
     final: {
       desktop: { ...last.cam.desktop, m: undefined, aspect: cams.desktop },
       mobile: { ...last.cam.mobile, m: undefined, aspect: cams.mobile },

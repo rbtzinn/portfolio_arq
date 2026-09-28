@@ -1,9 +1,12 @@
 // Estado global mutável, lido a cada frame (sem re-render do React).
-// Tudo que é "ligado ao scroll" lê `progress` (bruto) ou `p` (suavizado).
+// `scroll` é a posição do scroll na experiência (0..1); `p` é o tempo da animação (0..1),
+// que anda devagar nas pausas de cada montagem completa (ver TIMELINE).
 
 export const state = {
-  progress: 0, // 0..1 vindo do ScrollTrigger
-  p: 0, // progresso suavizado usado pela cena
+  scroll: 0, // 0..1 vindo do ScrollTrigger (bruto)
+  sp: 0, // scroll suavizado: textos e interface
+  progress: 0, // tempo da animação no scroll bruto
+  p: 0, // tempo da animação suavizado: usado pela cena
   hero: 0, // 0 no topo (hero visível) → 1 quando a experiência começa
   velocity: 0,
   pointer: { x: 0, y: 0, sx: 0, sy: 0 }, // -1..1 (s* = suavizado)
@@ -34,7 +37,7 @@ export function toggleBouquet() {
 // (frames do Blender) e pelas peças em Three.js — os dois precisam concordar.
 export const bouquetAngle = (P) => state.bouquet.spin + P * 3
 
-// Capítulos da narrativa em faixas de progresso.
+// Fases da coreografia no tempo da animação (usadas por bricks/world.js para montar a cena).
 export const CH = {
   void: [0.0, 0.1],
   stem: [0.1, 0.3],
@@ -42,6 +45,31 @@ export const CH = {
   reveal: [0.48, 0.58],
   garden: [0.58, 0.84],
   bouquet: [0.84, 1.0],
+}
+
+// Scroll → tempo da animação. Cada montagem acontece sem texto por cima; quando ela fica
+// completa, a animação quase para (a câmera ainda respira) e o texto daquele tópico
+// aparece. Pares [scroll, tempo]; entre eles, curva suave (desacelera ao chegar).
+export const TIMELINE = [
+  [0, 0], // peças soltas no escuro (tópico 1)
+  [0.1, 0.085],
+  [0.36, 0.476], // caule + pétalas: flor completa
+  [0.46, 0.482], // pausa: tópico 2
+  [0.56, 0.605], // primeiros canteiros completos
+  [0.66, 0.62], // pausa: tópico 3
+  [0.86, 0.88], // caminho do jardim (etiquetas dos projetos) até o buquê
+  [1, 1], // buquê (tópico 4)
+]
+export function animAt(s) {
+  if (s <= 0) return 0
+  for (let i = 1; i < TIMELINE.length; i++) {
+    const [s1, p1] = TIMELINE[i]
+    if (s <= s1) {
+      const [s0, p0] = TIMELINE[i - 1]
+      return lerp(p0, p1, smooth((s - s0) / (s1 - s0)))
+    }
+  }
+  return 1
 }
 
 export const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v))

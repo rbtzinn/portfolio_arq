@@ -76,10 +76,14 @@ function inspect() {
   // contraste do texto do capítulo sobre o frame (lê o canvas; ignora scrims → conservador)
   const cv = document.querySelector('canvas.seq')
   // WebGL: lê pelo renderizador (o buffer não é preservado); 2D: getImageData
-  const glr = window.__state?.seq?.player?.glr
-  const ctx = glr
-    ? { getImageData: (x, y, w, h) => ({ data: glr.read(x, y, w, h) || new Uint8Array(w * h * 4) }) }
-    : cv?.getContext('2d')
+  // vídeo + camada: player.sample; WebGL: lê pelo renderizador; 2D: getImageData
+  const pl = window.__state?.seq?.player
+  const glr = pl?.glr
+  const ctx = pl?.video
+    ? { getImageData: (x, y, w, h) => ({ data: pl.sample(x, y, w, h) }) }
+    : glr
+      ? { getImageData: (x, y, w, h) => ({ data: glr.read(x, y, w, h) || new Uint8Array(w * h * 4) }) }
+      : cv?.getContext('2d')
   const lum = (r, g, b) => {
     const f = (c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
@@ -173,13 +177,13 @@ if (!process.env.SKIP_ROBUST) {
     const v1 = await page.evaluate(() => window.__state.seq.variant)
     await page.setViewportSize({ width: 844, height: 390 })
     // a variante nova baixa o próprio vídeo: espera o primeiro quadro chegar
-    await page.waitForFunction(() => window.__state.seq.variant === 'desktop' && window.__state.seq.player.cur, null, { timeout: 60000 }).catch(() => {})
+    await page.waitForFunction(() => window.__state.seq.variant === 'desktop' && window.__state.seq.player.shown >= 0, null, { timeout: 60000 }).catch(() => {})
     await page.waitForTimeout(600)
     const v2 = await page.evaluate(() => window.__state.seq.variant)
     const drawn = await page.evaluate(() => {
       const c = document.querySelector('canvas.seq')
-      const glr = window.__state.seq.player.glr
-      const d = glr ? glr.read(c.width >> 1, c.height >> 1, 1, 1) : c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data
+      const pl = window.__state.seq.player
+      const d = pl.video ? pl.sample(c.width >> 1, c.height >> 1, 1, 1) : pl.glr ? pl.glr.read(c.width >> 1, c.height >> 1, 1, 1) : c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data
       return !!d && d[0] + d[1] + d[2] > 0
     })
     const issues = [...errs]

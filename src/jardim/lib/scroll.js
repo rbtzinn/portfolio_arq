@@ -1,7 +1,7 @@
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import Lenis from 'lenis'
-import { state } from '../store.js'
+import { state, animAt } from '../store.js'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -25,7 +25,8 @@ export function setupScroll(track) {
     start: 'top top',
     end: 'bottom bottom',
     onUpdate: (self) => {
-      state.progress = self.progress
+      state.scroll = self.progress
+      state.progress = animAt(self.progress)
       state.velocity = self.getVelocity() / 1000
     },
   })
@@ -38,8 +39,8 @@ export function setupScroll(track) {
     lenis.scrollTo(y, { immediate: true, force: true })
     ScrollTrigger.update()
     heroTrack(y)
-    state.progress = Math.max(0, p)
-    state.p = Math.max(0, p)
+    state.scroll = state.sp = Math.max(0, p)
+    state.progress = state.p = animAt(Math.max(0, p))
   }
   const qp = new URLSearchParams(location.search).get('p')
   if (qp) requestAnimationFrame(() => window.__jump(parseFloat(qp)))
