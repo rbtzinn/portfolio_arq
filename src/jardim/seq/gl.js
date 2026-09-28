@@ -31,6 +31,27 @@ void main() {
 }
 `
 
+// só a lanterna, sobre o vídeo: versão iluminada revelada pela máscara (alfa pré-multiplicado)
+const FRAG_TORCH = `
+precision mediump float;
+uniform sampler2D uLA, uLB;
+uniform float uLT, uTorch;
+uniform vec4 uRect;
+uniform vec2 uRes;
+uniform vec3 uPos;
+void main() {
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  vec2 uv = (p - uRect.xy) / uRect.zw;
+  vec3 l = mix(texture2D(uLA, uv).rgb, texture2D(uLB, uv).rgb, uLT);
+  float d = distance(p, uPos.xy) / uPos.z;
+  float m = d < 0.35 ? mix(1.0, 0.9, d / 0.35)
+          : d < 0.7 ? mix(0.9, 0.3, (d - 0.35) / 0.35)
+          : d < 1.0 ? mix(0.3, 0.05, (d - 0.7) / 0.3) : 0.05;
+  float a = m * uTorch;
+  gl_FragColor = vec4(l * a, a);
+}
+`
+
 // turntable do buquê: alfa pré-multiplicado sobre o plate
 const FRAG_TURN = `
 precision mediump float;
@@ -70,9 +91,10 @@ function program(gl, fs) {
 }
 
 export class GLRenderer {
-  static create(canvas) {
+  // transparent: camada por cima do <video> (fundo transparente em vez de opaco)
+  static create(canvas, transparent = false) {
     try {
-      const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, powerPreference: 'high-performance' })
+      const gl = canvas.getContext('webgl', { alpha: transparent, antialias: false, depth: false, stencil: false, premultipliedAlpha: true, powerPreference: 'high-performance' })
       if (!gl) return null
       return new GLRenderer(canvas, gl)
     } catch {
@@ -100,6 +122,7 @@ export class GLRenderer {
     const gl = this.gl
     this.main = program(gl, FRAG_MAIN)
     this.turn = program(gl, FRAG_TURN)
+    this.torch = program(gl, FRAG_TORCH)
     // um triângulo que cobre a tela inteira
     this.buf = gl.createBuffer()
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf)
@@ -120,22 +143,6 @@ export class GLRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp)
     return { tex, w: bmp.width, h: bmp.height }
-  }
-
-  // quadro atual de um <video> → textura (reaproveita a textura da entrada, se houver)
-  uploadVideo(video, entry) {
-    if (this.lost) return entry
-    const gl = this.gl
-    if (!entry) {
-      entry = { tex: gl.createTexture(), w: video.videoWidth, h: video.videoHeight }
-      gl.bindTexture(gl.TEXTURE_2D, entry.tex)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    } else gl.bindTexture(gl.TEXTURE_2D, entry.tex)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video)
-    return entry
   }
 
   release(entry) {
@@ -181,6 +188,31 @@ export class GLRenderer {
     gl.uniform4f(u.uRect, rect[0], rect[1], rect[2], rect[3])
     gl.uniform2f(u.uRes, this.canvas.width, this.canvas.height)
     gl.uniform3f(u.uPos, torch?.x || 0, torch?.y || 0, torch?.r || 1)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+  }
+
+  clear() {
+    this.last = null
+    if (this.lost) return
+    const gl = this.gl
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+  }
+
+  drawTorch({ LA, LB, lt, torch, rect }) {
+    if (this.lost) return
+    const gl = this.gl
+    const { p, u } = this.torch
+    gl.disable(gl.BLEND)
+    gl.useProgram(p)
+    this.bind(0, LA, u.uLA)
+    this.bind(1, LB || LA, u.uLB)
+    gl.uniform1f(u.uLT, LB ? lt : 0)
+    gl.uniform1f(u.uTorch, torch.amount)
+    gl.uniform4f(u.uRect, rect[0], rect[1], rect[2], rect[3])
+    gl.uniform2f(u.uRes, this.canvas.width, this.canvas.height)
+    gl.uniform3f(u.uPos, torch.x, torch.y, torch.r)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
   }
 

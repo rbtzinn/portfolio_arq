@@ -15,11 +15,9 @@ export default function App() {
   useInput()
 
   const [final, setFinal] = useState(null)
-  const [bom, setBom] = useState(undefined)
   const [mountBouquet, setMountBouquet] = useState(false)
   const onManifest = useCallback((m, variant) => {
     setFinal(m.final[variant])
-    setBom(m.bom)
   }, [])
 
   // o 3D do buquê só é montado perto do fim (a montagem custa CPU; no início do scroll
@@ -57,7 +55,7 @@ export default function App() {
           </Suspense>
         )}
       </div>
-      <Overlay projects={list} bom={bom} />
+      <Overlay projects={list} />
       <div className="hero-space" aria-hidden="true" />
       <div ref={track} className="track" aria-hidden="true" />
     </>

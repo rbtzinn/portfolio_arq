@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import gsap from 'gsap'
 import { SequencePlayer, detectFormat } from './SequencePlayer.js'
-import { state, damp, clamp, smooth, invLerp, lerp, bouquetAngle } from '../store.js'
+import { state, damp, clamp, smooth, invLerp, lerp, bouquetAngle, animAt } from '../store.js'
 import { snapBurst, updateAmbient } from '../lib/audio.js'
 import { setStyle, setClass } from '../lib/dom.js'
 
@@ -130,7 +130,10 @@ export default function Sequence({ onManifest }) {
       const now = performance.now()
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
-      state.p = damp(state.p, state.progress, coarse ? 14 : 7, dt)
+      // suaviza no espaço do scroll e só então converte em tempo da animação: as pausas
+      // e acelerações da TIMELINE continuam suaves
+      state.sp = damp(state.sp, state.scroll, coarse ? 14 : 7, dt)
+      state.p = animAt(state.sp)
       const pt = state.pointer
       const t = now / 1000
       // sem mouse (toque) a lanterna passeia sozinha; giroscópio assume quando existe
@@ -152,7 +155,7 @@ export default function Sequence({ onManifest }) {
       // em movimento: posição fracionária (crossfade); parado: assenta no frame inteiro
       // mais próximo, sem dupla exposição
       const target = clamp(P / m.seqEnd) * (m.frames - 1)
-      const idle = Math.abs(state.progress - state.p) < 0.0004
+      const idle = Math.abs(state.scroll - state.sp) < 0.0004
       fsDisp = idle ? damp(fsDisp, Math.round(target), 9, dt) : target
       if (idle && Math.abs(fsDisp - Math.round(target)) < 0.01) fsDisp = Math.round(target)
       const fs = fsDisp
@@ -224,7 +227,9 @@ export default function Sequence({ onManifest }) {
         const a = L[f0]?.[i]
         const b = L[f1]?.[i]
         if (!el || !a || !b) continue
-        const vis = lerp(a[2], b[2], k) * fadeEnd
+        // só depois que o canteiro do projeto terminou de montar
+        const done = m.labelDone?.[i] ?? 0
+        const vis = lerp(a[2], b[2], k) * fadeEnd * smooth(invLerp(done, done + 0.012, P)) * smooth(invLerp(0.655, 0.675, state.sp)) // e depois do texto do jardim
         if (vis <= 0.001) {
           setStyle(el, 'opacity', '0')
           setStyle(el, 'pointerEvents', 'none')

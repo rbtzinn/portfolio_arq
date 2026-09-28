@@ -64,9 +64,9 @@ def encode(src, dst_base, alpha=False):
     return os.path.getsize(avif), os.path.getsize(webp)
 
 
-def encode_video(files, dst):
-    """PNGs → MP4 H.264. Keyframe a cada 4 quadros e sem B-frames: qualquer quadro sai com
-    no máximo 3 decodificações extras, então o scroll (inclusive para trás) busca na hora."""
+def encode_video(files, dst, gop=4):
+    """PNGs → MP4 H.264, sem B-frames. Keyframe a cada `gop` quadros: qualquer quadro sai com
+    no máximo gop-1 decodificações extras (celular: gop 1, cada quadro é independente)."""
     if all(fresh(dst, f) for f in files):
         return os.path.getsize(dst)
     lst = dst + ".txt"
@@ -76,7 +76,7 @@ def encode_video(files, dst):
     subprocess.run(
         [args.ffmpeg, "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-r", str(args.fps),
          "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
-         "-c:v", "libx264", "-preset", "veryslow", "-crf", str(args.video_crf), "-g", "4", "-keyint_min", "4",
+         "-c:v", "libx264", "-preset", "veryslow", "-crf", str(args.video_crf), "-g", str(gop), "-keyint_min", str(gop),
          "-bf", "0", "-sc_threshold", "0", "-x264-params", "aq-mode=3",
          "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
          "-movflags", "+faststart", "-an", dst],
@@ -87,7 +87,7 @@ def encode_video(files, dst):
     subprocess.run(
         [args.ffmpeg, "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-r", str(args.fps),
          "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
-         "-c:v", "libvpx-vp9", "-crf", "33", "-b:v", "0", "-g", "4", "-deadline", "good", "-cpu-used", "2",
+         "-c:v", "libvpx-vp9", "-crf", "33", "-b:v", "0", "-g", str(gop), "-deadline", "good", "-cpu-used", "2",
          "-row-mt", "1", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
          "-color_range", "tv", "-an", webm],
         check=True,
@@ -97,7 +97,7 @@ def encode_video(files, dst):
 
 
 meta = json.load(open(os.path.join(HERE, "build", "meta.json")))
-manifest = {k: meta[k] for k in ("frames", "seqEnd", "total", "built", "labels", "final", "bom", "turn")}
+manifest = {k: meta[k] for k in ("frames", "seqEnd", "total", "built", "labels", "labelDone", "final", "bom", "turn")}
 manifest["variants"] = {}
 jobs = []
 videos = []
@@ -114,7 +114,7 @@ for variant in ("desktop", "mobile"):
         v[mode] = {"frames": idx, "path": f"{variant}/{mode}"}
         if mode == "main":
             os.makedirs(os.path.join(OUT, variant), exist_ok=True)
-            videos.append((files, os.path.join(OUT, variant, "main.mp4")))
+            videos.append((files, os.path.join(OUT, variant, "main.mp4"), 1 if variant == "mobile" else 4))
             v[mode].update(video=f"{variant}/main.mp4", videoAlt=f"{variant}/main.webm", fps=args.fps)
             continue
         d = os.path.join(OUT, variant, mode)
@@ -156,5 +156,5 @@ for variant in ("desktop", "mobile"):
 tot_a = sum(s[0] for s in sizes)
 tot_w = sum(s[1] for s in sizes)
 json.dump(manifest, open(os.path.join(OUT, "manifest.json"), "w"), separators=(",", ":"))
-print(" · ".join(f"{os.path.relpath(d, OUT)} {s / 1e6:.1f} MB" for (_, d), s in zip(videos, vsizes)))
+print(" · ".join(f"{os.path.relpath(v[1], OUT)} {s / 1e6:.1f} MB" for v, s in zip(videos, vsizes)))
 print(f"{len(jobs)} imagens · AVIF {tot_a / 1e6:.1f} MB · WebP {tot_w / 1e6:.1f} MB")

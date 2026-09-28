@@ -59,6 +59,15 @@ html.lenis body {
   width: 100%;
   height: 100%;
 }
+.seq-video {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: none;
+  transform-origin: 0 0;
+  pointer-events: none;
+  display: block;
+}
 .bq-stage {
   position: absolute;
   inset: 0;
@@ -67,8 +76,8 @@ html.lenis body {
 }
 .track {
   position: relative;
-  height: 1100vh;
-  height: 1100svh;
+  height: 1300vh;
+  height: 1300svh;
   pointer-events: none;
 }
 
@@ -446,22 +455,6 @@ html.lenis body {
   font-size: clamp(44px, min(11vw, 17vh), 176px);
 }
 
-.bom {
-  list-style: none;
-  padding: 0;
-  margin: 26px 0 0;
-  display: grid;
-  grid-template-columns: repeat(2, auto);
-  gap: 8px 20px;
-  justify-content: start;
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
-}
-.bom b {
-  color: var(--pink);
-  font-weight: 500;
-  margin-right: 4px;
-}
 
 /* ---------- etiquetas de projeto ---------- */
 .tag {
@@ -688,9 +681,6 @@ html.lenis body {
   .brand__name {
     font-size: 13px;
   }
-  .bom {
-    margin-top: 16px;
-  }
   .tag__card {
     min-width: 170px;
     left: 26px;
@@ -731,9 +721,6 @@ html.lenis body {
   .lede {
     font-size: 13px;
     max-width: 44ch;
-  }
-  .bom {
-    display: none;
   }
   .actions {
     margin-top: 12px;

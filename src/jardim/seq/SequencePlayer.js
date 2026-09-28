@@ -1,8 +1,11 @@
 // Player da animação renderizada no Blender, ligado ao scroll e desenhado em WebGL.
 //
-// - Sequência principal: um vídeo H.264 curto (decodificado pelo hardware do aparelho).
-//   O scroll só muda o currentTime; cada quadro novo vira textura e entra com um
-//   crossfade de ~90 ms — leve até em celular e sem "degraus" entre frames.
+// - Sequência principal: um vídeo H.264 curto (decodificado pelo hardware do aparelho),
+//   mostrado como o próprio <video> na página — o navegador compõe o quadro direto na GPU,
+//   sem cópia para textura nem shader em tela cheia. O scroll só muda o currentTime e o
+//   enquadramento (zoom/paralaxe) é um transform de CSS.
+// - O canvas por cima fica transparente e só desenha quando precisa: lanterna no começo e
+//   turntable do buquê no fim.
 // - O vídeo é baixado inteiro antes (blob local): buscar um quadro é instantâneo, inclusive
 //   no Safari, que não busca bem em vídeo por streaming.
 // - Imagens (AVIF ou WebP) só onde o vídeo não serve: a versão iluminada da lanterna
@@ -29,14 +32,14 @@ const smooth = (t) => t * t * (3 - 2 * t)
 export class SequencePlayer {
   constructor(canvas, manifest, variant, ext, base = '/seq/') {
     this.canvas = canvas
-    // WebGL quando existe (texturas + shader); canvas 2D só como reserva
-    this.glr = GLRenderer.create(canvas)
-    this.ctx = this.glr ? null : canvas.getContext('2d', { alpha: false })
+    const videoMode = !!manifest.variants[variant].main.video
+    // WebGL quando existe (texturas + shader); canvas 2D só como reserva.
+    // Com vídeo, o canvas é uma camada transparente por cima dele.
+    this.glr = GLRenderer.create(canvas, videoMode)
+    this.ctx = this.glr ? null : canvas.getContext('2d', { alpha: videoMode })
     if (this.glr)
       this.glr.onRestore = () => {
         this.bitmaps.clear() // texturas antigas morreram com o contexto
-        this.cur = this.prev = null
-        if (this.video) this.seek(this.want, true)
         this.dirty = true
       }
     this.m = manifest
@@ -63,10 +66,9 @@ export class SequencePlayer {
     this.aborted = false
     // sequência principal em vídeo (manifest novo); sem ele, frames de imagem como antes
     this.fps = this.v.main.fps || 30
-    this.video = this.v.main.video ? this.makeVideo() : null
-    this.cur = null // textura do quadro atual do vídeo
-    this.prev = null // textura do quadro anterior (crossfade)
-    this.fadeAt = 0
+    this.video = videoMode ? this.makeVideo() : null
+    this.videoXf = ''
+    this.overlayEmpty = true
     this.shown = -1
     this.want = 0
     this.seeking = false
@@ -80,9 +82,13 @@ export class SequencePlayer {
     v.preload = 'auto'
     v.setAttribute('playsinline', '')
     v.setAttribute('aria-hidden', 'true')
-    // no DOM (invisível): o iOS só decodifica quadros de vídeos anexados à página
-    v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none'
-    document.body.appendChild(v)
+    v.disablePictureInPicture = true
+    v.className = 'seq-video'
+    v.width = this.v.size[0]
+    v.height = this.v.size[1]
+    // atrás do canvas, no mesmo palco; tamanho nativo + transform (só compositor)
+    this.canvas.parentElement.insertBefore(v, this.canvas)
+    v.style.opacity = '0' // aparece com o primeiro quadro
     v.addEventListener('seeked', () => this.onSeeked())
     return v
   }
@@ -138,16 +144,11 @@ export class SequencePlayer {
     if (this.aborted) return
     this.seeking = false
     this.shown = this.pending
-    if (this.glr) {
-      // o quadro que estava na tela vira o "anterior" do crossfade; o novo sobe na outra textura
-      const old = this.prev
-      this.prev = this.cur
-      this.cur = this.glr.uploadVideo(this.video, old)
-      this.fadeAt = this.prev ? performance.now() : 0
-    } else this.cur = this.video
-    this.dirty = true
-    this.onFirst?.()
-    this.onFirst = null
+    if (this.onFirst) {
+      this.video.style.opacity = ''
+      this.onFirst()
+      this.onFirst = null
+    }
     if (this.want !== this.shown) this.seek(this.want)
   }
 
@@ -383,17 +384,54 @@ export class SequencePlayer {
 
   drawVideo(fs, a, b, t, torch) {
     this.seek(t < 0.5 ? a : b)
-    if (!this.cur) return
-    if (!this.glr) {
-      // canvas 2D (sem WebGL): o próprio vídeo, sem crossfade nem lanterna
+    // enquadramento "cover" + zoom/paralaxe: transform no próprio vídeo
+    const f = this.fit
+    const xf = `translate3d(${f.x.toFixed(1)}px, ${f.y.toFixed(1)}px, 0) scale(${f.s.toFixed(5)})`
+    if (xf !== this.videoXf) this.video.style.transform = this.videoXf = xf
+    this.frameCleared = false
+    const lit = torch && torch.amount > 0.001 && this.src.lit.length && this.glr
+    if (lit) {
       const r = this.ratio
-      const f = this.fit
-      this.ctx.drawImage(this.video, f.x * r, f.y * r, f.w * r, f.h * r)
-      return
+      const l = this.locate('lit', Math.min(fs, this.src.lit[this.src.lit.length - 1]))
+      const LA = this.decode('lit', l[0], true) || this.nearest('lit', l[0])
+      const LB = l[2] > 0.02 ? this.decode('lit', l[1], true) : null
+      if (LA) {
+        this.clearOverlay()
+        this.glr.drawTorch({
+          LA,
+          LB: LB && LB !== LA ? LB : null,
+          lt: l[2],
+          torch: { x: torch.x * r, y: torch.y * r, r: Math.max(this.cssW, this.cssH) * 0.34 * r, amount: torch.amount },
+          rect: [f.x * r, f.y * r, f.w * r, f.h * r],
+        })
+        this.overlayEmpty = false
+        return
+      }
     }
-    const k = this.fadeAt ? clamp((performance.now() - this.fadeAt) / 90) : 1
-    if (k < 1) this.dirty = true // continua redesenhando até o crossfade terminar
-    this.drawGL(fs, k < 1 ? this.prev : this.cur, k < 1 ? this.cur : null, k, torch, 1, -1)
+    // nada por cima: limpa uma vez e deixa o canvas parado (transparente)
+    if (!this.overlayEmpty) {
+      this.clearOverlay()
+      this.overlayEmpty = true
+    }
+  }
+
+  clearOverlay() {
+    if (this.glr) this.glr.clear()
+    else this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    this.frameCleared = true
+  }
+
+  // pixels do que está na tela (testes): o quadro do vídeo com o mesmo enquadramento
+  sample(x, y, w, h) {
+    const c = (this.sampleCanvas ||= document.createElement('canvas'))
+    c.width = this.canvas.width
+    c.height = this.canvas.height
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    const r = this.ratio
+    const f = this.fit
+    if (this.video) ctx.drawImage(this.video, f.x * r, f.y * r, f.w * r, f.h * r)
+    ctx.drawImage(this.canvas, 0, 0)
+    return ctx.getImageData(x, y, w, h).data
   }
 
   drawGL(fs, A, B, t, torch, dir, a) {
@@ -448,6 +486,8 @@ export class SequencePlayer {
     const Y = (f.y + (y0 / rh) * f.h) * r
     const Wd = ((x1 - x0) / rw) * f.w * r
     const Hd = ((y1 - y0) / rh) * f.h * r
+    if (this.video && !this.frameCleared) this.clearOverlay()
+    this.overlayEmpty = false
     if (this.glr) {
       this.glr.drawTurn({ A, B: B && B !== A ? B : null, t, alpha, rect: [X, Y, Wd, Hd] })
       return true
@@ -494,11 +534,6 @@ export class SequencePlayer {
     this.uploads.clear()
     for (const b of this.bitmaps.values()) this.free(b)
     this.bitmaps.clear()
-    if (this.glr) {
-      this.glr.release(this.cur)
-      this.glr.release(this.prev)
-    }
-    this.cur = this.prev = null
     if (this.video) {
       this.video.removeAttribute('src')
       this.video.load()

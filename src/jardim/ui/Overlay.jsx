@@ -6,28 +6,21 @@ import { scrollToProgress, scrollToTop } from '../lib/scroll.js'
 import { buildWhatsAppUrl } from '../../utils/whatsapp.js'
 import { setStyle, setText, setClass } from '../lib/dom.js'
 
-const NUM = ['zero', 'uma', 'duas', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez']
-const TENS = { 20: 'vinte', 30: 'trinta', 40: 'quarenta' }
-const extenso = (n) => (n <= 10 ? NUM[n] : n % 10 === 0 ? TENS[n] : `${TENS[n - (n % 10)]} e ${NUM[n % 10]}`)
-const cap = (s) => s[0].toUpperCase() + s.slice(1)
-
-
-// Capítulos: [entra, sai]. A opacidade e o deslocamento vêm do progresso suavizado.
+// Tópicos: [entra, sai] na posição do scroll (0..1). Cada um fica na pausa de uma montagem
+// completa (store.js → TIMELINE); durante as montagens a tela fica só com a animação.
 const CHAPTERS = [
-  { id: 'void', a: -1, b: 0.085, step: '01' },
-  { id: 'stem', a: 0.15, b: 0.285, step: '02' },
-  { id: 'bloom', a: 0.315, b: 0.47, step: '03' },
-  { id: 'reveal', a: 0.5, b: 0.6, step: '04' },
-  { id: 'garden', a: 0.62, b: 0.83, step: '04' },
-  { id: 'bouquet', a: 0.885, b: 2, step: '05' },
+  { id: 'void', a: -1, b: 0.095, step: '01' },
+  { id: 'flower', a: 0.375, b: 0.455, step: '02' },
+  { id: 'garden', a: 0.575, b: 0.655, step: '03' },
+  { id: 'bouquet', a: 0.905, b: 2, step: '04' },
 ]
-// p = destino do clique; from = a partir de quando o item fica ativo
+const FADE = 0.02
+// p = destino do clique (scroll); from = a partir de quando o item fica ativo
 const NAV = [
   { label: 'Solto', p: 0, from: 0 },
-  { label: 'Caule', p: 0.2, from: 0.1 },
-  { label: 'Flor', p: 0.43, from: 0.3 },
-  { label: 'Jardim', p: 0.6, from: 0.49 },
-  { label: 'Buquê', p: 0.95, from: 0.86 },
+  { label: 'Flor', p: 0.415, from: 0.2 },
+  { label: 'Jardim', p: 0.615, from: 0.5 },
+  { label: 'Buquê', p: 0.97, from: 0.86 },
 ]
 
 // Linha de título revelada por máscara; --i ordena a cascata (ver .line em styles.css)
@@ -43,7 +36,7 @@ const whats = (message) => (PHONE ? buildWhatsAppUrl({ phone: PHONE, message }) 
 
 const pad = (n, l = 3) => String(Math.max(0, Math.round(n))).padStart(l, '0')
 
-export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 10, leaves: 2, petals: 27 } }) {
+export default function Overlay({ projects }) {
   const refs = useRef({})
   const counter = useRef()
   const total = useRef()
@@ -87,6 +80,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
     const f3 = (v) => v.toFixed(3)
     const tick = () => {
       const P = state.p
+      const S = state.sp
       // ---- hero: ao rolar, a imagem aproxima (zoom) e se dissolve no escuro da experiência ----
       const H = state.hero
       const heroOut = smooth(invLerp(0.4, 0.9, H))
@@ -107,26 +101,24 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       for (const c of CHAPTERS) {
         const el = refs.current[c.id]
         if (!el) continue
-        const fin = c.a < 0 ? 1 : smooth(invLerp(c.a, c.a + 0.03, P))
-        const fout = smooth(invLerp(c.b - 0.03, c.b, P))
+        const fin = c.a < 0 ? 1 : smooth(invLerp(c.a, c.a + FADE, S))
+        const fout = smooth(invLerp(c.b - FADE, c.b, S))
         const o = fin * (1 - fout)
         const cin = c.id === 'void' ? Math.min(fin, state.intro ?? 1) : fin
         const hidden = cin < 0.01 || fout > 0.99
         setStyle(el, 'visibility', hidden ? 'hidden' : 'visible')
-        scrim = Math.max(scrim, c.id === 'garden' ? o * 0.6 : o)
+        scrim = Math.max(scrim, o)
         if (hidden) continue // capítulo fora da tela: nada a atualizar
         setStyle(el, 'opacity', f3(Math.min(1, cin * 3) * (1 - fout) ** 1.6))
         setStyle(el, '--cin', f3(cin))
         setStyle(el, '--cout', f3(fout))
         setClass(el, 'is-on', cin > 0.6 && fout < 0.4)
-        // lista de peças conta de 0 até o total, como num manual
-        if (c.id === 'stem') for (const b of el.querySelectorAll('b[data-n]')) setText(b, Math.round(+b.dataset.n * clamp(cin * 1.5 - 0.3)) + '×')
       }
-      const cur = [...CHAPTERS].reverse().find((c) => P >= c.a - 0.02) || CHAPTERS[0]
+      const cur = [...CHAPTERS].reverse().find((c) => S >= c.a - FADE) || CHAPTERS[0]
       setText(stepEl.current, cur.step)
       setText(counter.current, pad((state.built || 0) + (state.bouquetAssembled || 0), 4))
       setText(total.current, pad(state.totalPieces || 0, 4))
-      setStyle(bar.current, 'transform', `scaleY(${clamp(state.progress).toFixed(3)})`)
+      setStyle(bar.current, 'transform', `scaleY(${clamp(state.scroll).toFixed(3)})`)
       const light = smooth(invLerp(0.085, 0.2, P))
       // variáveis globais: só mudam durante a transição escuro → claro
       setStyle(root, '--light', light.toFixed(2))
@@ -137,7 +129,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       setStyle(scrimDark.current, 'opacity', (1 - light).toFixed(2))
       navRefs.current.forEach((el, i) => {
         const next = NAV[i + 1]?.from ?? 2
-        setClass(el, 'is-active', P >= NAV[i].from && P < next)
+        setClass(el, 'is-active', S >= NAV[i].from && S < next)
       })
       if (bqBtn.current) {
         const o = smooth(invLerp(0.9, 0.93, P))
@@ -230,7 +222,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         </a>
         <div ref={(el) => (chrome.current[0] = el)} className="meta mono">
           <span>
-            Passo <b ref={stepEl}>01</b>/05
+            Passo <b ref={stepEl}>01</b>/04
           </span>
           <span className="meta__count">
             <b ref={counter}>0000</b>/<span ref={total}>0000</span> peças
@@ -261,51 +253,22 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         </p>
       </section>
 
-      <section ref={(el) => (refs.current.stem = el)} className="ch ch--stem">
-        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 02 — Estrutura</p>
-        <h2>
-          <Line i={0}>Antes da flor,</Line>
-          <Line i={1}><em>a estrutura.</em></Line>
-        </h2>
-        <p className="lede rv" style={{ '--i': 2.2 }}>Todo projeto nasce do que não se vê: eixo, apoio, encaixe. Um caule é arquitetura em miniatura.</p>
-        <ul className="bom mono rv" style={{ '--i': 3 }} aria-label="Lista de peças">
-          <li>
-            <b data-n={bom.bars}>{bom.bars}×</b> barra
-          </li>
-          <li>
-            <b data-n={bom.plates}>{bom.plates}×</b> peça redonda 1×1
-          </li>
-          <li>
-            <b data-n={bom.slopes}>{bom.slopes}×</b> slope 45° 1×2
-          </li>
-          <li>
-            <b data-n={bom.leaves}>{bom.leaves}×</b> folha curva 3×5
-          </li>
-        </ul>
-      </section>
-
-      <section ref={(el) => (refs.current.bloom = el)} className="ch ch--bloom">
-        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 03 — Desabrochar</p>
+      <section ref={(el) => (refs.current.flower = el)} className="ch ch--flower">
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 02 — Estrutura e detalhe</p>
         <h2>
           <Line i={0}>Peça por peça,</Line>
           <Line i={1}><em>a forma aparece.</em></Line>
         </h2>
-        <p className="lede rv" style={{ '--i': 2.2 }}>
-          {cap(extenso(bom.petals))} placas curvas, cada uma no seu ângulo. O detalhe é o que transforma estrutura em lugar.
-        </p>
+        <p className="lede rv" style={{ '--i': 2.2 }}>Primeiro o eixo e o apoio; depois, o detalhe que transforma estrutura em lugar.</p>
       </section>
 
-      <section ref={(el) => (refs.current.reveal = el)} className="ch ch--reveal">
-        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 04 — Jardim</p>
+      <section ref={(el) => (refs.current.garden = el)} className="ch ch--garden">
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 03 — Jardim</p>
         <h2>
           <Line i={0}>Arquitetura</Line>
           <Line i={1}><em>é cultivar.</em></Line>
         </h2>
-        <p className="lede rv" style={{ '--i': 2.2 }}>Cada canteiro deste jardim é um projeto. Caminhe entre eles.</p>
-      </section>
-
-      <section ref={(el) => (refs.current.garden = el)} className="ch ch--garden">
-        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 04 — Projetos selecionados</p>
+        <p className="lede rv" style={{ '--i': 2.2 }}>Cada canteiro deste jardim é um projeto.</p>
       </section>
 
       {projects.map((p, i) => {
@@ -334,7 +297,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       })}
 
       <section ref={(el) => (refs.current.bouquet = el)} className="ch ch--bouquet">
-        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 05 — Buquê</p>
+        <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 04 — Buquê</p>
         <h2>
           <Line i={0}>Monte. Desmonte.</Line>
           <Line i={1}><em>Recomece.</em></Line>
