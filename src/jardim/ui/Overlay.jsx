@@ -101,18 +101,11 @@ export default function Overlay({ projects }) {
       for (const c of CHAPTERS) {
         const el = refs.current[c.id]
         if (!el) continue
-        const fin = c.a < 0 ? 1 : smooth(invLerp(c.a, c.a + FADE, S))
-        const fout = smooth(invLerp(c.b - FADE, c.b, S))
-        const o = fin * (1 - fout)
-        const cin = c.id === 'void' ? Math.min(fin, state.intro ?? 1) : fin
-        const hidden = cin < 0.01 || fout > 0.99
-        setStyle(el, 'visibility', hidden ? 'hidden' : 'visible')
-        scrim = Math.max(scrim, o)
-        if (hidden) continue // capítulo fora da tela: nada a atualizar
-        setStyle(el, 'opacity', f3(Math.min(1, cin * 3) * (1 - fout) ** 1.6))
-        setStyle(el, '--cin', f3(cin))
-        setStyle(el, '--cout', f3(fout))
-        setClass(el, 'is-on', cin > 0.6 && fout < 0.4)
+        // entra/sai por classe: a animação do texto é uma transição CSS (transform e
+        // opacidade, no compositor) — nada de estilo recalculado a cada quadro do scroll
+        const on = S >= c.a + FADE * 0.5 && S < c.b - FADE * 0.5 && (c.id !== 'void' || intro.v > 0.5)
+        setClass(el, 'is-on', on)
+        if (on) scrim = 1
       }
       const cur = [...CHAPTERS].reverse().find((c) => S >= c.a - FADE) || CHAPTERS[0]
       setText(stepEl.current, cur.step)
@@ -120,10 +113,10 @@ export default function Overlay({ projects }) {
       setText(total.current, pad(state.totalPieces || 0, 4))
       setStyle(bar.current, 'transform', `scaleY(${clamp(state.scroll).toFixed(3)})`)
       const light = smooth(invLerp(0.085, 0.2, P))
-      // variáveis globais: só mudam durante a transição escuro → claro
-      setStyle(root, '--light', light.toFixed(2))
-      // texto escuro sobre o hero claro; claro no escuro da experiência
-      setStyle(root, '--tl', Math.max(smooth(invLerp(0.42, 0.62, light)), 1 - smooth(invLerp(0.35, 0.7, H))).toFixed(2))
+      state.light = light // (testes) sem variável CSS: mudar a raiz recalcularia a página toda
+      // texto escuro sobre fundo claro (hero e jardim); claro no escuro. Troca única com
+      // transição de cor — uma variável global mudando a cada quadro recalcularia a página toda
+      setStyle(root, '--tl', light > 0.5 || H < 0.55 ? '1' : '0')
       // degradês de legibilidade: camadas próprias, só opacidade (compositor)
       setStyle(scrimLight.current, 'opacity', (light * (0.35 + scrim * 0.55)).toFixed(2))
       setStyle(scrimDark.current, 'opacity', (1 - light).toFixed(2))

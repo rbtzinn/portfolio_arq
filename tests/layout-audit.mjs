@@ -106,7 +106,7 @@ function inspect() {
       }
       L /= n || 1
       // o scrim do capítulo empurra o fundo para creme (claro) ou escuro, como na página
-      const light = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--light')) || 0
+      const light = window.__state?.light || 0
       const scrim = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--scrim')) || 0
       const creamL = lum(242, 233, 218)
       const darkL = lum(12, 11, 10)
