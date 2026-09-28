@@ -28,3 +28,4 @@ blender/renders
 tests/.shots
 tests/.shots-prod
 blender/renders_old
+__pycache__/
