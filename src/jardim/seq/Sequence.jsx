@@ -53,6 +53,15 @@ export default function Sequence({ onManifest }) {
       state.totalPieces = manifest.built[manifest.built.length - 1] + (state.bouquetCount || 0)
       onManifest?.(manifest, variant)
 
+      if (pl.video) {
+        // vídeo: pronto quando o arquivo chegou e o primeiro quadro está na GPU
+        pl.onVideoReady = () => pl === player && ready()
+        pl.load((f) => pl === player && window.dispatchEvent(new CustomEvent('jardim:progress', { detail: f })))
+          .then(() => pl === player && window.dispatchEvent(new Event('jardim:loaded')))
+          .catch(() => pl === player && fail())
+        return
+      }
+
       // pronto quando o primeiro passo grosso (1 a cada 16) chegou e o frame 0 decodificou
       const coarse = Math.ceil(pl.src.main.length / 16) + Math.ceil(pl.src.lit.length / 4) + 1
       const whenDecoded = (tries = 0) => {
@@ -62,9 +71,10 @@ export default function Sequence({ onManifest }) {
         else fail()
       }
       let armed = false
-      pl.load((n, total) => {
+      pl.load((f) => {
         if (pl !== player) return
-        window.dispatchEvent(new CustomEvent('jardim:progress', { detail: n / total }))
+        window.dispatchEvent(new CustomEvent('jardim:progress', { detail: f }))
+        const n = pl.loaded
         if (!armed && n >= coarse) {
           armed = true
           whenDecoded()
@@ -155,7 +165,9 @@ export default function Sequence({ onManifest }) {
       const H = window.innerHeight
       const torchAmt = 1 - smooth(invLerp(0.07, 0.1, P))
       const torch = { x: (pt.sx * 0.5 + 0.5) * W, y: (-pt.sy * 0.5 + 0.5) * H, amount: torchAmt }
-      const zoom = 1 + 0.025 * par
+      // saindo do hero: a cena chega de perto (zoom) e assenta enquanto a imagem do hero some
+      const heroIn = 1 - smooth(invLerp(0.2, 1, state.hero))
+      const zoom = 1 + 0.025 * par + 0.14 * heroIn
       const px = -pt.sx * 10 * par
       const py = pt.sy * 7 * par
 
@@ -187,7 +199,8 @@ export default function Sequence({ onManifest }) {
       // só redesenha quando algo visível mudou (economia de bateria/GPU)
       const r2 = (v) => Math.round(v * 100)
       const sig = [r2(fs), r2(torch.x / 10), r2(torch.y / 10), r2(torchAmt), r2(zoom * 10), r2(px), r2(py), r2(B.turnAlpha), B.turnAlpha > 0.001 ? r2(turnK) : 0, W, H].join()
-      if (player.needsDraw(sig)) {
+      // hero ainda opaco por cima: nada a desenhar
+      if (state.hero > 0.25 && player.needsDraw(sig)) {
         player.draw(fs, { zoom, px, py, dir, torch })
         if (B.turnAlpha > 0.001) player.drawTurn(turnK, B.turnAlpha)
       }

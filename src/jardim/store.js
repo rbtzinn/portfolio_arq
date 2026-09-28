@@ -4,6 +4,7 @@
 export const state = {
   progress: 0, // 0..1 vindo do ScrollTrigger
   p: 0, // progresso suavizado usado pela cena
+  hero: 0, // 0 no topo (hero visível) → 1 quando a experiência começa
   velocity: 0,
   pointer: { x: 0, y: 0, sx: 0, sy: 0 }, // -1..1 (s* = suavizado)
   gyro: { enabled: false, x: 0, y: 0 },

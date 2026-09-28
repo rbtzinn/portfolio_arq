@@ -1,7 +1,7 @@
 """Converte os PNGs renderizados em sequências otimizadas para a web (ffmpeg).
 
-  AVIF (libaom-av1, still picture)  → formato principal
-  WebP (libwebp)                    → fallback
+  sequência principal → vídeo H.264 (public/seq/<variante>/main.mp4), buscado pelo scroll
+  lanterna e turntable → AVIF (libaom-av1, still picture) + WebP (libwebp) de fallback
 Saída: public/seq/<variante>/<modo>/NNNN.<ext> (numeração contígua) e public/seq/manifest.json
 com os índices de frame de origem, dimensões, etiquetas e a câmera final do buquê.
 
@@ -26,6 +26,8 @@ ap.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
 ap.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or "ffmpeg")
 ap.add_argument("--crf", type=int, default=30)
 ap.add_argument("--webp-q", type=int, default=72)
+ap.add_argument("--video-crf", type=int, default=21)
+ap.add_argument("--fps", type=int, default=30)
 args = ap.parse_args()
 
 
@@ -62,10 +64,43 @@ def encode(src, dst_base, alpha=False):
     return os.path.getsize(avif), os.path.getsize(webp)
 
 
+def encode_video(files, dst):
+    """PNGs → MP4 H.264. Keyframe a cada 4 quadros e sem B-frames: qualquer quadro sai com
+    no máximo 3 decodificações extras, então o scroll (inclusive para trás) busca na hora."""
+    if all(fresh(dst, f) for f in files):
+        return os.path.getsize(dst)
+    lst = dst + ".txt"
+    with open(lst, "w") as fh:
+        for f in files:
+            fh.write(f"file '{f}'\nduration {1 / args.fps:.6f}\n")
+    subprocess.run(
+        [args.ffmpeg, "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-r", str(args.fps),
+         "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
+         "-c:v", "libx264", "-preset", "veryslow", "-crf", str(args.video_crf), "-g", "4", "-keyint_min", "4",
+         "-bf", "0", "-sc_threshold", "0", "-x264-params", "aq-mode=3",
+         "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
+         "-movflags", "+faststart", "-an", dst],
+        check=True,
+    )
+    # reserva VP9 (navegadores sem H.264, p. ex. Chromium sem codecs proprietários)
+    webm = dst[:-4] + ".webm"
+    subprocess.run(
+        [args.ffmpeg, "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-r", str(args.fps),
+         "-vf", "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
+         "-c:v", "libvpx-vp9", "-crf", "33", "-b:v", "0", "-g", "4", "-deadline", "good", "-cpu-used", "2",
+         "-row-mt", "1", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+         "-color_range", "tv", "-an", webm],
+        check=True,
+    )
+    os.remove(lst)
+    return os.path.getsize(dst)
+
+
 meta = json.load(open(os.path.join(HERE, "build", "meta.json")))
 manifest = {k: meta[k] for k in ("frames", "seqEnd", "total", "built", "labels", "final", "bom", "turn")}
 manifest["variants"] = {}
 jobs = []
+videos = []
 for variant in ("desktop", "mobile"):
     v = {}
     for mode in ("main", "lit", "turn"):
@@ -76,11 +111,16 @@ for variant in ("desktop", "mobile"):
         if not files:
             continue
         idx = [int(re.search(r"_(\d+)\.png$", f).group(1)) for f in files]
+        v[mode] = {"frames": idx, "path": f"{variant}/{mode}"}
+        if mode == "main":
+            os.makedirs(os.path.join(OUT, variant), exist_ok=True)
+            videos.append((files, os.path.join(OUT, variant, "main.mp4")))
+            v[mode].update(video=f"{variant}/main.mp4", videoAlt=f"{variant}/main.webm", fps=args.fps)
+            continue
         d = os.path.join(OUT, variant, mode)
         os.makedirs(d, exist_ok=True)
         for i, f in enumerate(files):
             jobs.append((f, os.path.join(d, f"{i:04d}"), mode == "turn"))
-        v[mode] = {"frames": idx, "path": f"{variant}/{mode}"}
         if mode == "turn":
             v[mode]["crop"] = meta["turn"]["crop"][variant]
             v[mode]["res"] = meta["turn"]["res"][variant]
@@ -96,6 +136,7 @@ for variant in ("desktop", "mobile"):
 
 with ThreadPoolExecutor(args.jobs) as ex:
     sizes = list(ex.map(lambda j: encode(*j), jobs))
+vsizes = [encode_video(*v) for v in videos]
 
 # poster (noscript / Open Graph): a flor aberta
 bloom = round(0.46 / meta["seqEnd"] * (meta["frames"] - 1))
@@ -106,7 +147,14 @@ if os.path.exists(src):
     subprocess.run([args.ffmpeg, "-loglevel", "error", "-y", "-i", src, "-q:v", "3",
                     os.path.join(OUT, "poster.jpg")], check=True)
 
+# hero (abertura do site): a flor aberta, a mesma cena que a sequência monta depois
+for variant in ("desktop", "mobile"):
+    src = os.path.join(RENDERS, f"{variant}_main_{bloom:04d}.png")
+    if os.path.exists(src):
+        encode(src, os.path.join(OUT, f"hero-{variant}"))
+
 tot_a = sum(s[0] for s in sizes)
 tot_w = sum(s[1] for s in sizes)
 json.dump(manifest, open(os.path.join(OUT, "manifest.json"), "w"), separators=(",", ":"))
-print(f"{len(jobs)} frames · AVIF {tot_a / 1e6:.1f} MB · WebP {tot_w / 1e6:.1f} MB")
+print(" · ".join(f"{os.path.relpath(d, OUT)} {s / 1e6:.1f} MB" for (_, d), s in zip(videos, vsizes)))
+print(f"{len(jobs)} imagens · AVIF {tot_a / 1e6:.1f} MB · WebP {tot_w / 1e6:.1f} MB")

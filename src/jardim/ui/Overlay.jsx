@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import gsap from 'gsap'
 import { state, smooth, invLerp, clamp, toggleBouquet } from '../store.js'
 import { enableSound } from '../lib/audio.js'
-import { scrollToProgress, setScrollLocked } from '../lib/scroll.js'
+import { scrollToProgress, scrollToTop } from '../lib/scroll.js'
 import { buildWhatsAppUrl } from '../../utils/whatsapp.js'
 import { setStyle, setText, setClass } from '../lib/dom.js'
 
@@ -49,35 +49,25 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
   const total = useRef()
   const stepEl = useRef()
   const bar = useRef()
-  const hint = useRef()
   const bqHint = useRef()
   const bqBtn = useRef()
   const scrimLight = useRef()
   const scrimDark = useRef()
-  const loader = useRef()
-  const loaderCount = useRef()
+  const hero = useRef()
+  const heroMedia = useRef()
+  const heroText = useRef()
+  const status = useRef()
+  const chrome = useRef([])
   const navRefs = useRef([])
   const [sound, setSound] = useState(false)
-  const [ready, setReady] = useState(false) // visitante entrou (loader aberto)
-  const [loaded, setLoaded] = useState(false) // frames prontos: mostra o portão
+  const [ready, setReady] = useState(false) // animação pronta para rolar
   const [failed, setFailed] = useState(false)
   state.labelEls = state.labelEls || []
 
-  // carregamento: o contador acompanha os frames que chegam da rede
+  // carregamento em segundo plano enquanto o hero está na tela
   useEffect(() => {
-    const onProgress = (e) => {
-      if (!loaderCount.current || !state.seq) return
-      const total = state.seq.manifest.built.at(-1)
-      loaderCount.current.textContent = pad(Math.min(1, e.detail * 4) * total, 4)
-    }
-    const done = () => {
-      if (loaderCount.current && state.seq) loaderCount.current.textContent = pad(state.seq.manifest.built.at(-1), 4)
-      state.intro = 0
-      const q = new URLSearchParams(location.search)
-      // links profundos (?p=) e testes (?gate=0) entram direto
-      if (q.has('p') || q.get('gate') === '0') enter(false)
-      else setTimeout(() => setLoaded(true), 250)
-    }
+    const onProgress = (e) => setText(status.current, `Separando peças · ${Math.round(Math.min(1, e.detail / 0.8) * 100)}%`)
+    const done = () => setReady(true)
     const onError = () => setFailed(true)
     if (state.ready) done()
     window.addEventListener('jardim:progress', onProgress)
@@ -92,10 +82,27 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
 
   useEffect(() => {
     const root = document.documentElement
+    const intro = { v: 0 }
     const touch = window.matchMedia('(pointer: coarse)').matches
     const f3 = (v) => v.toFixed(3)
     const tick = () => {
       const P = state.p
+      // ---- hero: ao rolar, a imagem aproxima (zoom) e se dissolve no escuro da experiência ----
+      const H = state.hero
+      const heroOut = smooth(invLerp(0.4, 0.9, H))
+      setStyle(hero.current, 'visibility', H > 0.995 ? 'hidden' : 'visible')
+      if (H <= 0.995) {
+        setStyle(hero.current, 'opacity', f3(1 - heroOut))
+        setStyle(heroMedia.current, 'transform', `scale(${(1 + 0.22 * smooth(H)).toFixed(4)})`)
+        setStyle(heroText.current, 'transform', `translate3d(0, ${(-60 * H).toFixed(1)}px, 0)`)
+        setStyle(heroText.current, 'opacity', f3(1 - smooth(invLerp(0.05, 0.5, H))))
+      }
+      // o primeiro capítulo só se revela quando o hero sai e a animação está pronta
+      intro.v = Math.min(smooth(invLerp(0.55, 1, H)), state.ready ? 1 : 0)
+      state.intro = intro.v
+      // cabeçalho de progresso e trilho aparecem com a experiência
+      const ch = f3(smooth(invLerp(0.6, 1, H)))
+      for (const el of chrome.current) setStyle(el, 'opacity', ch)
       let scrim = 0
       for (const c of CHAPTERS) {
         const el = refs.current[c.id]
@@ -120,11 +127,11 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       setText(counter.current, pad((state.built || 0) + (state.bouquetAssembled || 0), 4))
       setText(total.current, pad(state.totalPieces || 0, 4))
       setStyle(bar.current, 'transform', `scaleY(${clamp(state.progress).toFixed(3)})`)
-      setStyle(hint.current, 'opacity', f3(1 - smooth(invLerp(0.01, 0.05, P))))
       const light = smooth(invLerp(0.085, 0.2, P))
       // variáveis globais: só mudam durante a transição escuro → claro
       setStyle(root, '--light', light.toFixed(2))
-      setStyle(root, '--tl', smooth(invLerp(0.42, 0.62, light)).toFixed(2))
+      // texto escuro sobre o hero claro; claro no escuro da experiência
+      setStyle(root, '--tl', Math.max(smooth(invLerp(0.42, 0.62, light)), 1 - smooth(invLerp(0.35, 0.7, H))).toFixed(2))
       // degradês de legibilidade: camadas próprias, só opacidade (compositor)
       setStyle(scrimLight.current, 'opacity', (light * (0.35 + scrim * 0.55)).toFixed(2))
       setStyle(scrimDark.current, 'opacity', (1 - light).toFixed(2))
@@ -155,18 +162,6 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
     return () => gsap.ticker.remove(tick)
   }, [])
 
-  // entrada: o título sobe linha a linha depois que o loader se abre
-  const enter = (withSound) => {
-    if (withSound) {
-      enableSound(true)
-      setSound(true)
-    }
-    setScrollLocked(false)
-    setReady(true)
-    gsap.to(state, { intro: 1, duration: 1.9, delay: 0.55, ease: 'power3.out' })
-  }
-  useEffect(() => setScrollLocked(true), [])
-
   const toggleSound = () => {
     enableSound(!sound)
     setSound(!sound)
@@ -176,35 +171,44 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
     <div className={`ui ${ready ? 'is-ready' : ''}`}>
       <div ref={scrimDark} className="scrim scrim--dark" aria-hidden="true" />
       <div ref={scrimLight} className="scrim scrim--light" aria-hidden="true" />
-      <div ref={loader} className="loader" aria-hidden={ready}>
-        <div className="loader__box">
-          {failed ? (
-            <>
-              <span className="mono">Não foi possível carregar as peças</span>
-              <button className="btn btn--light" onClick={() => location.reload()}>
-                Tentar de novo
-              </button>
-
-            </>
-          ) : (
-            <>
-              <span className="mono">{loaded ? 'Peças separadas' : 'Separando peças'}</span>
-              <span ref={loaderCount} className="loader__n">
-                0000
+      <section ref={hero} className="hero" aria-labelledby="hero-title">
+        <picture className="hero__media" aria-hidden="true">
+          <source media="(orientation: portrait)" srcSet="/seq/hero-mobile.avif" type="image/avif" />
+          <source media="(orientation: portrait)" srcSet="/seq/hero-mobile.webp" type="image/webp" />
+          <source srcSet="/seq/hero-desktop.avif" type="image/avif" />
+          <img ref={heroMedia} src="/seq/hero-desktop.webp" alt="" fetchpriority="high" decoding="async" />
+        </picture>
+        <div ref={heroText} className="hero__text">
+          <p className="kicker mono">Helena Costa — Arquitetura e interiores</p>
+          <h1 id="hero-title">
+            Projetos que se montam
+            <em> peça por peça.</em>
+          </h1>
+          <p className="hero__lede">
+            Estrutura, detalhe e cuidado: é assim que um lugar ganha forma. Aqui embaixo, centenas de peças soltas viram uma flor — e
+            depois um jardim inteiro, onde cada canteiro é um projeto.
+          </p>
+          <div className="hero__foot">
+            {whats('Gostaria de começar um projeto.') && (
+              <a className="btn btn--solid" href={whats('Gostaria de começar um projeto.')} target="_blank" rel="noopener noreferrer">
+                Iniciar um projeto
+              </a>
+            )}
+            {failed ? (
+              <span className="hero__status mono">
+                Não foi possível carregar as peças ·{' '}
+                <button className="hero__retry mono" onClick={() => location.reload()}>
+                  Tentar de novo
+                </button>
               </span>
-              <div className={`gate ${loaded ? 'is-on' : ''}`}>
-                <button className="btn btn--light gate__main" onClick={() => enter(true)} disabled={!loaded}>
-                  Entrar com som
-                </button>
-                <button className="gate__alt mono" onClick={() => enter(false)} disabled={!loaded}>
-                  Entrar sem som
-                </button>
-                <span className="gate__hint mono">Melhor com fones</span>
-              </div>
-            </>
-          )}
+            ) : (
+              <span ref={status} className={`hero__status mono ${ready ? 'is-done' : ''}`}>
+                Separando peças
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
 
       <header className="top">
         <a
@@ -213,7 +217,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
           aria-label="Helena Costa Arquitetura — voltar ao início"
           onClick={(e) => {
             e.preventDefault()
-            scrollToProgress(0)
+            scrollToTop()
           }}
         >
           <span className="brand__mark" aria-hidden="true">
@@ -224,7 +228,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
             Helena Costa<em>Arquitetura</em>
           </span>
         </a>
-        <div className="meta mono">
+        <div ref={(el) => (chrome.current[0] = el)} className="meta mono">
           <span>
             Passo <b ref={stepEl}>01</b>/05
           </span>
@@ -234,7 +238,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         </div>
       </header>
 
-      <nav className="rail ui-block" aria-label="Capítulos">
+      <nav ref={(el) => (chrome.current[1] = el)} className="rail ui-block" aria-label="Capítulos">
         <div className="rail__line">
           <div ref={bar} className="rail__fill" />
         </div>
@@ -252,7 +256,9 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
           <Line i={0}>Tudo começa</Line>
           <Line i={1}><em>solto.</em></Line>
         </h1>
-        <p className="lede rv" style={{ '--i': 2.2 }}>Centenas de peças no escuro e nenhuma instrução. Mova o cursor: a luz é você.</p>
+        <p className="lede rv" style={{ '--i': 2.2 }}>
+          Centenas de peças no escuro e nenhuma instrução. {window.matchMedia('(pointer: coarse)').matches ? 'Incline o celular' : 'Mova o mouse'}: a luz é você.
+        </p>
       </section>
 
       <section ref={(el) => (refs.current.stem = el)} className="ch ch--stem">
@@ -350,11 +356,6 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         <span className="bq-hint__ring" />
         <span ref={bqHint}>Clique no buquê para desmontar</span>
       </button>
-
-      <div ref={hint} className="scroll-hint mono">
-        <span>Role para montar</span>
-        <i />
-      </div>
 
       <button className={`sound mono ui-block ${sound ? 'is-on' : ''}`} onClick={toggleSound} aria-pressed={sound}>
         <span className="sound__bars" aria-hidden="true">

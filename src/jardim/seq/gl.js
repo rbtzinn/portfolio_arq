@@ -122,6 +122,22 @@ export class GLRenderer {
     return { tex, w: bmp.width, h: bmp.height }
   }
 
+  // quadro atual de um <video> → textura (reaproveita a textura da entrada, se houver)
+  uploadVideo(video, entry) {
+    if (this.lost) return entry
+    const gl = this.gl
+    if (!entry) {
+      entry = { tex: gl.createTexture(), w: video.videoWidth, h: video.videoHeight }
+      gl.bindTexture(gl.TEXTURE_2D, entry.tex)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    } else gl.bindTexture(gl.TEXTURE_2D, entry.tex)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video)
+    return entry
+  }
+
   release(entry) {
     if (entry?.tex && !this.lost) this.gl.deleteTexture(entry.tex)
   }

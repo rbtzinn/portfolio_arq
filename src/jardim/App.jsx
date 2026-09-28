@@ -58,6 +58,7 @@ export default function App() {
         )}
       </div>
       <Overlay projects={list} bom={bom} />
+      <div className="hero-space" aria-hidden="true" />
       <div ref={track} className="track" aria-hidden="true" />
     </>
   )
