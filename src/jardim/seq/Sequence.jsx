@@ -3,6 +3,7 @@ import gsap from 'gsap'
 import { SequencePlayer, detectFormat } from './SequencePlayer.js'
 import { state, damp, clamp, smooth, invLerp, lerp, bouquetAngle } from '../store.js'
 import { snapBurst, updateAmbient } from '../lib/audio.js'
+import { setStyle, setClass } from '../lib/dom.js'
 
 // Canvas de fundo com a sequência renderizada no Blender. Também é o "relógio" da cena:
 // suaviza o progresso e o ponteiro, posiciona as etiquetas e alimenta o contador de peças.
@@ -16,6 +17,7 @@ export default function Sequence({ onManifest }) {
     let lastFs = 0
     let dir = 1
     let fsDisp = 0
+    const cardBox = new WeakMap()
     let pointerSeen = false
     const onPointer = () => (pointerSeen = true)
     window.addEventListener('pointermove', onPointer, { once: true })
@@ -77,7 +79,12 @@ export default function Sequence({ onManifest }) {
             if (!r.ok) throw new Error('manifest ' + r.status)
             return r.json()
           }),
-          forced === 'webp' || forced === 'avif' ? forced : detectFormat(),
+          forced === 'webp' || forced === 'avif'
+            ? forced
+            : // celular: WebP decodifica bem mais rápido que AVIF 10 bits → frames prontos a tempo
+              matchMedia('(pointer: coarse)').matches
+              ? 'webp'
+              : detectFormat(),
         ])
         if (!alive) return
         manifest = m
@@ -193,24 +200,30 @@ export default function Sequence({ onManifest }) {
         if (!el || !a || !b) continue
         const vis = lerp(a[2], b[2], k) * fadeEnd
         if (vis <= 0.001) {
-          if (el.style.opacity !== '0') el.style.opacity = '0'
-          el.style.pointerEvents = 'none'
+          setStyle(el, 'opacity', '0')
+          setStyle(el, 'pointerEvents', 'none')
           continue
         }
         const [x, y] = player.project(lerp(a[0], b[0], k), lerp(a[1], b[1], k))
         // cartão à esquerda da âncora na metade direita da tela
         const flip = x > W * 0.58
-        if (el.classList.contains('tag--left') !== flip) el.classList.toggle('tag--left', flip)
-        const card = el.firstElementChild?.nextElementSibling?.nextElementSibling
-        const cl = x + (card ? card.offsetLeft : 48)
-        const ct = y + (card ? card.offsetTop : -64)
-        const cw = card ? card.offsetWidth : 240
+        setClass(el, 'tag--left', flip)
+        // medidas do cartão: lidas uma vez por lado/tamanho de tela (sem layout a cada quadro)
+        const key = (flip ? 'L' : 'R') + W
+        let box = cardBox.get(el)
+        if (!box || box.key !== key) {
+          const card = el.querySelector('.tag__card')
+          box = { key, l: card ? card.offsetLeft : 48, t: card ? card.offsetTop : -64, w: card ? card.offsetWidth : 240 }
+          cardBox.set(el, box)
+        }
+        const cl = x + box.l
+        const ct = y + box.t
         // some antes de encostar nas bordas ou no cabeçalho
-        const room = Math.min(cl - 12, W - 12 - (cl + cw), ct - headerH, H - 24 - y)
+        const room = Math.min(cl - 12, W - 12 - (cl + box.w), ct - headerH, H - 24 - y)
         const o = vis * clamp(room / 60)
-        el.style.opacity = o.toFixed(3)
-        el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`
-        el.style.pointerEvents = o > 0.5 ? 'auto' : 'none'
+        setStyle(el, 'opacity', o.toFixed(2))
+        setStyle(el, 'transform', `translate3d(${x.toFixed(0)}px, ${y.toFixed(0)}px, 0)`)
+        setStyle(el, 'pointerEvents', o > 0.5 ? 'auto' : 'none')
       }
     }
     gsap.ticker.add(tick)

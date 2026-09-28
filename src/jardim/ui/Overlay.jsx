@@ -3,7 +3,8 @@ import gsap from 'gsap'
 import { state, smooth, invLerp, clamp, toggleBouquet } from '../store.js'
 import { enableSound } from '../lib/audio.js'
 import { scrollToProgress, setScrollLocked } from '../lib/scroll.js'
-import { slugify } from '../../utils/slug.js'
+import { buildWhatsAppUrl } from '../../utils/whatsapp.js'
+import { setStyle, setText, setClass } from '../lib/dom.js'
 
 const NUM = ['zero', 'uma', 'duas', 'três', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez']
 const TENS = { 20: 'vinte', 30: 'trinta', 40: 'quarenta' }
@@ -36,6 +37,10 @@ const Line = ({ i, children }) => (
   </span>
 )
 
+// contato: o mesmo WhatsApp do site anterior (variável VITE_WHATSAPP_NUMBER na Vercel)
+const PHONE = import.meta.env.VITE_WHATSAPP_NUMBER
+const whats = (message) => (PHONE ? buildWhatsAppUrl({ phone: PHONE, message }) : null)
+
 const pad = (n, l = 3) => String(Math.max(0, Math.round(n))).padStart(l, '0')
 
 export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 10, leaves: 2, petals: 27 } }) {
@@ -47,6 +52,8 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
   const hint = useRef()
   const bqHint = useRef()
   const bqBtn = useRef()
+  const scrimLight = useRef()
+  const scrimDark = useRef()
   const loader = useRef()
   const loaderCount = useRef()
   const navRefs = useRef([])
@@ -84,6 +91,9 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
   }, [])
 
   useEffect(() => {
+    const root = document.documentElement
+    const touch = window.matchMedia('(pointer: coarse)').matches
+    const f3 = (v) => v.toFixed(3)
     const tick = () => {
       const P = state.p
       let scrim = 0
@@ -94,56 +104,52 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         const fout = smooth(invLerp(c.b - 0.03, c.b, P))
         const o = fin * (1 - fout)
         const cin = c.id === 'void' ? Math.min(fin, state.intro ?? 1) : fin
-        el.style.opacity = (Math.min(1, cin * 3) * (1 - fout) ** 1.6).toFixed(3)
-        el.style.setProperty('--cin', cin.toFixed(3))
-        el.style.setProperty('--cout', fout.toFixed(3))
-        el.style.visibility = cin < 0.01 || fout > 0.99 ? 'hidden' : 'visible'
-        el.classList.toggle('is-on', cin > 0.6 && fout < 0.4)
-        // lista de peças conta de 0 até o total, como num manual
-        if (c.id === 'stem')
-          for (const b of el.querySelectorAll('b[data-n]')) {
-            const v = Math.round(+b.dataset.n * clamp(cin * 1.5 - 0.3)) + '×'
-            if (b.textContent !== v) b.textContent = v
-          }
+        const hidden = cin < 0.01 || fout > 0.99
+        setStyle(el, 'visibility', hidden ? 'hidden' : 'visible')
         scrim = Math.max(scrim, c.id === 'garden' ? o * 0.6 : o)
+        if (hidden) continue // capítulo fora da tela: nada a atualizar
+        setStyle(el, 'opacity', f3(Math.min(1, cin * 3) * (1 - fout) ** 1.6))
+        setStyle(el, '--cin', f3(cin))
+        setStyle(el, '--cout', f3(fout))
+        setClass(el, 'is-on', cin > 0.6 && fout < 0.4)
+        // lista de peças conta de 0 até o total, como num manual
+        if (c.id === 'stem') for (const b of el.querySelectorAll('b[data-n]')) setText(b, Math.round(+b.dataset.n * clamp(cin * 1.5 - 0.3)) + '×')
       }
-      document.documentElement.style.setProperty('--scrim', scrim.toFixed(3))
       const cur = [...CHAPTERS].reverse().find((c) => P >= c.a - 0.02) || CHAPTERS[0]
-      if (stepEl.current && stepEl.current.textContent !== cur.step) stepEl.current.textContent = cur.step
-      const tot = state.totalPieces || 0
-      const n = (state.built || 0) + (state.bouquetAssembled || 0)
-      if (counter.current) counter.current.textContent = pad(n, 4)
-      if (total.current) total.current.textContent = pad(tot, 4)
-      if (bar.current) bar.current.style.transform = `scaleY(${clamp(state.progress).toFixed(4)})`
-      if (hint.current) hint.current.style.opacity = (1 - smooth(invLerp(0.01, 0.05, P))).toFixed(3)
+      setText(stepEl.current, cur.step)
+      setText(counter.current, pad((state.built || 0) + (state.bouquetAssembled || 0), 4))
+      setText(total.current, pad(state.totalPieces || 0, 4))
+      setStyle(bar.current, 'transform', `scaleY(${clamp(state.progress).toFixed(3)})`)
+      setStyle(hint.current, 'opacity', f3(1 - smooth(invLerp(0.01, 0.05, P))))
       const light = smooth(invLerp(0.085, 0.2, P))
-      document.documentElement.style.setProperty('--light', light.toFixed(3))
-      document.documentElement.style.setProperty('--tl', smooth(invLerp(0.42, 0.62, light)).toFixed(3))
+      // variáveis globais: só mudam durante a transição escuro → claro
+      setStyle(root, '--light', light.toFixed(2))
+      setStyle(root, '--tl', smooth(invLerp(0.42, 0.62, light)).toFixed(2))
+      // degradês de legibilidade: camadas próprias, só opacidade (compositor)
+      setStyle(scrimLight.current, 'opacity', (light * (0.35 + scrim * 0.55)).toFixed(2))
+      setStyle(scrimDark.current, 'opacity', (1 - light).toFixed(2))
       navRefs.current.forEach((el, i) => {
-        if (!el) return
         const next = NAV[i + 1]?.from ?? 2
-        el.classList.toggle('is-active', P >= NAV[i].from && P < next)
+        setClass(el, 'is-active', P >= NAV[i].from && P < next)
       })
       if (bqBtn.current) {
         const o = smooth(invLerp(0.9, 0.93, P))
-        bqBtn.current.style.opacity = o.toFixed(3)
-        bqBtn.current.style.pointerEvents = o > 0.5 ? 'auto' : 'none'
+        setStyle(bqBtn.current, 'opacity', f3(o))
+        setStyle(bqBtn.current, 'pointerEvents', o > 0.5 ? 'auto' : 'none')
       }
-      if (bqHint.current) {
-        const m = state.bouquet.mode
-        const touch = window.matchMedia('(pointer: coarse)').matches
-        const txt =
-          m === 'idle'
+      const m = state.bouquet.mode
+      setText(
+        bqHint.current,
+        m === 'idle'
+          ? touch
+            ? 'Toque ou chacoalhe para desmontar'
+            : 'Clique no buquê para desmontar'
+          : m === 'exploded'
             ? touch
-              ? 'Toque ou chacoalhe para desmontar'
-              : 'Clique no buquê para desmontar'
-            : m === 'exploded'
-              ? touch
-                ? 'Toque para remontar'
-                : 'Clique para remontar'
-              : 'Remontando…'
-        if (bqHint.current.textContent !== txt) bqHint.current.textContent = txt
-      }
+              ? 'Toque para remontar'
+              : 'Clique para remontar'
+            : 'Remontando…',
+      )
     }
     gsap.ticker.add(tick)
     return () => gsap.ticker.remove(tick)
@@ -168,6 +174,8 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
 
   return (
     <div className={`ui ${ready ? 'is-ready' : ''}`}>
+      <div ref={scrimDark} className="scrim scrim--dark" aria-hidden="true" />
+      <div ref={scrimLight} className="scrim scrim--light" aria-hidden="true" />
       <div ref={loader} className="loader" aria-hidden={ready}>
         <div className="loader__box">
           {failed ? (
@@ -176,9 +184,7 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
               <button className="btn btn--light" onClick={() => location.reload()}>
                 Tentar de novo
               </button>
-              <a className="loader__alt mono" href="/">
-                Ir para o site completo
-              </a>
+
             </>
           ) : (
             <>
@@ -201,7 +207,15 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
       </div>
 
       <header className="top">
-        <a className="brand ui-block" href="/" aria-label="Helena Costa Arquitetura — site principal">
+        <a
+          className="brand ui-block"
+          href="#"
+          aria-label="Helena Costa Arquitetura — voltar ao início"
+          onClick={(e) => {
+            e.preventDefault()
+            scrollToProgress(0)
+          }}
+        >
           <span className="brand__mark" aria-hidden="true">
             <i />
             <i />
@@ -288,23 +302,30 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 04 — Projetos selecionados</p>
       </section>
 
-      {projects.map((p, i) => (
-        <a
-          key={p.id}
-          ref={(el) => (state.labelEls[i] = el)}
-          className="tag ui-block"
-          href={`/projetos/${slugify(p.title)}`}
-          style={{ opacity: 0 }}
-        >
-          <span className="tag__dot" />
-          <span className="tag__line" />
-          <span className="tag__card">
-            <span className="mono">Canteiro {String(i + 1).padStart(2, '0')} · {p.category}</span>
-            <strong>{p.title}</strong>
-            <span className="tag__cta mono">Ver projeto →</span>
-          </span>
-        </a>
-      ))}
+      {projects.map((p, i) => {
+        // cada canteiro é um projeto: com WhatsApp configurado, o cartão abre a conversa
+        const link = whats(`Vi o projeto "${p.title}" no portfólio e gostaria de conversar.`)
+        const Tag = link ? 'a' : 'div'
+        return (
+          <Tag
+            key={p.id}
+            ref={(el) => (state.labelEls[i] = el)}
+            className="tag ui-block"
+            {...(link ? { href: link, target: '_blank', rel: 'noopener noreferrer' } : {})}
+            style={{ opacity: 0 }}
+          >
+            <span className="tag__dot" />
+            <span className="tag__line" />
+            <span className="tag__card">
+              <span className="mono">
+                Canteiro {String(i + 1).padStart(2, '0')} · {p.category}
+              </span>
+              <strong>{p.title}</strong>
+              {link && <span className="tag__cta mono">Conversar sobre este projeto →</span>}
+            </span>
+          </Tag>
+        )
+      })}
 
       <section ref={(el) => (refs.current.bouquet = el)} className="ch ch--bouquet">
         <p className="kicker mono rv" style={{ '--i': -0.6 }}>Passo 05 — Buquê</p>
@@ -314,12 +335,14 @@ export default function Overlay({ projects, bom = { bars: 9, plates: 8, slopes: 
         </h2>
         <p className="lede rv" style={{ '--i': 2.2 }}>Um bom projeto é feito de partes que podem ser repensadas. Vamos montar o seu?</p>
         <div className="actions ui-block rv" style={{ '--i': 3 }}>
-          <a className="btn btn--solid" href="/#contato">
-            Iniciar um projeto
-          </a>
-          <a className="btn" href="/">
-            Site completo
-          </a>
+          {whats('Gostaria de começar um projeto.') && (
+            <a className="btn btn--solid" href={whats('Gostaria de começar um projeto.')} target="_blank" rel="noopener noreferrer">
+              Iniciar um projeto
+            </a>
+          )}
+          <button className={`btn ${PHONE ? '' : 'btn--solid'}`} onClick={() => scrollToProgress(0)}>
+            Montar de novo
+          </button>
         </div>
       </section>
 

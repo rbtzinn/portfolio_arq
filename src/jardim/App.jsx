@@ -23,12 +23,14 @@ export default function App() {
     setBom(m.bom)
   }, [])
 
-  // monta o buquê quando a sequência terminou de carregar, ou antes se o scroll chegar perto
+  // o 3D do buquê só é montado perto do fim (a montagem custa CPU; no início do scroll
+  // isso viraria travada). No desktop, também quando o navegador fica ocioso após carregar.
   useEffect(() => {
     let raf
-    const loaded = () => setMountBouquet(true)
+    const fine = matchMedia('(pointer: fine)').matches
+    const loaded = () => fine && (window.requestIdleCallback || setTimeout)(() => setMountBouquet(true), { timeout: 4000 })
     const watch = () => {
-      if (state.p > 0.55) setMountBouquet(true)
+      if (state.p > 0.68) setMountBouquet(true)
       else raf = requestAnimationFrame(watch)
     }
     watch()

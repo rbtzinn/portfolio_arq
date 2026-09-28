@@ -20,6 +20,8 @@ export function detectFormat() {
   })
 }
 
+import { GLRenderer } from './gl.js'
+
 const pad = (n) => String(n).padStart(4, '0')
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v))
 const smooth = (t) => t * t * (3 - 2 * t)
@@ -27,7 +29,14 @@ const smooth = (t) => t * t * (3 - 2 * t)
 export class SequencePlayer {
   constructor(canvas, manifest, variant, ext, base = '/seq/') {
     this.canvas = canvas
-    this.ctx = canvas.getContext('2d', { alpha: false })
+    // WebGL quando existe (texturas + shader); canvas 2D só como reserva
+    this.glr = GLRenderer.create(canvas)
+    this.ctx = this.glr ? null : canvas.getContext('2d', { alpha: false })
+    if (this.glr)
+      this.glr.onRestore = () => {
+        this.bitmaps.clear() // texturas antigas morreram com o contexto
+        this.dirty = true
+      }
     this.m = manifest
     this.variant = variant
     this.v = manifest.variants[variant]
@@ -37,12 +46,13 @@ export class SequencePlayer {
     this.blobs = { main: new Map(), lit: new Map(), turn: new Map() }
     this.bitmaps = new Map() // "modo:i" → ImageBitmap (LRU)
     this.decoding = new Set()
-    this.maxBitmaps = 34
+    // texturas/bitmaps decodificados mantidos (janela em volta do frame atual)
+    this.maxBitmaps = matchMedia('(pointer: coarse)').matches ? 22 : 34
     this.iw = this.v.size[0]
     this.ih = this.v.size[1]
     this.fit = { s: 1, x: 0, y: 0, w: 0, h: 0 }
     this.off = document.createElement('canvas')
-    this.offCtx = this.off.getContext('2d')
+    this.offCtx = this.glr ? null : this.off.getContext('2d')
     this.loaded = 0
     this.total = this.src.main.length + this.src.lit.length + this.src.turn.length
     this.aborted = false
@@ -106,22 +116,34 @@ export class SequencePlayer {
       return b
     }
     const blob = this.blobs[mode].get(i)
-    if (blob && !this.decoding.has(key)) {
+    // no máximo 3 decodificações ao mesmo tempo: as mais próximas pedem primeiro
+    if (blob && !this.decoding.has(key) && this.decoding.size < 3) {
       this.decoding.add(key)
-      createImageBitmap(blob)
+      createImageBitmap(blob, { premultiplyAlpha: 'premultiply', imageOrientation: 'none' })
         .then((bmp) => {
-          this.bitmaps.set(key, bmp)
+          if (this.aborted) return bmp.close?.()
+          let entry = bmp
+          if (this.glr) {
+            entry = this.glr.upload(bmp) // vai para a GPU uma vez
+            bmp.close?.()
+          }
+          this.bitmaps.set(key, entry)
           this.dirty = true // um frame melhor chegou: vale redesenhar
           while (this.bitmaps.size > this.maxBitmaps) {
             const [k, old] = this.bitmaps.entries().next().value
             this.bitmaps.delete(k)
-            old.close?.()
+            this.free(old)
           }
         })
         .catch(() => {})
         .finally(() => this.decoding.delete(key))
     }
     return null
+  }
+
+  free(entry) {
+    if (this.glr) this.glr.release(entry)
+    else entry?.close?.()
   }
 
   // bitmap decodificado mais próximo de i (procura para os dois lados)
@@ -170,8 +192,10 @@ export class SequencePlayer {
     this.canvas.height = Math.round(h * r)
     this.canvas.style.width = w + 'px'
     this.canvas.style.height = h + 'px'
-    this.off.width = this.canvas.width
-    this.off.height = this.canvas.height
+    if (!this.glr) {
+      this.off.width = this.canvas.width
+      this.off.height = this.canvas.height
+    }
     this.cssW = w
     this.cssH = h
     this.ratio = r
@@ -204,6 +228,7 @@ export class SequencePlayer {
     const [a, b, t] = loc
     const A = this.decode('main', a) || this.nearest('main', a)
     const B = t > 0.02 ? this.decode('main', b) : null
+    if (this.glr) return this.drawGL(fs, A, B, t, torch, dir, a)
     this.drawBitmap(ctx, A)
     // crossfade curto no meio do intervalo: menos tempo em dupla exposição
     if (B && B !== A) this.drawBitmap(ctx, B, smooth(clamp((t - 0.2) / 0.6)))
@@ -239,6 +264,38 @@ export class SequencePlayer {
     }
   }
 
+  drawGL(fs, A, B, t, torch, dir, a) {
+    this.prefetch(a, dir)
+    if (!A) return
+    const r = this.ratio
+    const f = this.fit
+    let LA = null
+    let LB = null
+    let lt = 0
+    if (torch && torch.amount > 0.001 && this.src.lit.length) {
+      const l = this.locate('lit', Math.min(fs, this.src.lit[this.src.lit.length - 1]))
+      LA = this.decode('lit', l[0]) || this.nearest('lit', l[0])
+      LB = l[2] > 0.02 ? this.decode('lit', l[1]) : null
+      lt = l[2]
+    }
+    this.glr.drawMain({
+      A,
+      B: B && B !== A ? B : null,
+      t: smooth(clamp((t - 0.2) / 0.6)),
+      LA,
+      LB,
+      lt,
+      torch: torch && { x: torch.x * r, y: torch.y * r, r: Math.max(this.cssW, this.cssH) * 0.34 * r, amount: torch.amount },
+      rect: [f.x * r, f.y * r, f.w * r, f.h * r],
+    })
+  }
+
+  prefetch(a, dir) {
+    const n = this.src.main.length
+    for (let k = 1; k <= 6; k++) this.decode('main', clamp(a + k * dir, 0, n - 1) | 0)
+    this.decode('main', clamp(a - dir, 0, n - 1) | 0)
+  }
+
   // Turntable do buquê: k = índice fracionário do ângulo (0..n, dá a volta).
   // Desenha no retângulo de recorte exportado, com crossfade entre ângulos vizinhos.
   drawTurn(k, alpha = 1) {
@@ -259,6 +316,10 @@ export class SequencePlayer {
     const Y = (f.y + (y0 / rh) * f.h) * r
     const Wd = ((x1 - x0) / rw) * f.w * r
     const Hd = ((y1 - y0) / rh) * f.h * r
+    if (this.glr) {
+      this.glr.drawTurn({ A, B: B && B !== A ? B : null, t, alpha, rect: [X, Y, Wd, Hd] })
+      return true
+    }
     const ctx = this.ctx
     ctx.globalAlpha = alpha
     ctx.drawImage(A, X, Y, Wd, Hd)
@@ -297,7 +358,7 @@ export class SequencePlayer {
 
   dispose() {
     this.aborted = true
-    for (const b of this.bitmaps.values()) b.close?.()
+    for (const b of this.bitmaps.values()) this.free(b)
     this.bitmaps.clear()
   }
 }

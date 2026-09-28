@@ -1,17 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve } from 'node:path'
 
 export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        jardim: resolve(__dirname, 'jardim/index.html'),
-      },
       output: {
-        // three/r3f isolados: o site principal não baixa nada de 3D
+        // three/r3f isolados: só são baixados no final (buquê)
         manualChunks(id) {
           // o helper de preload do Vite não pode cair no chunk do three
           if (id.includes('preload-helper') || id.includes('modulepreload-polyfill')) return 'vite'
