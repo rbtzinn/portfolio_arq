@@ -47,16 +47,17 @@ export const CH = {
   bouquet: [0.84, 1.0],
 }
 
-// Scroll → tempo da animação. Cada montagem acontece sem texto por cima; quando ela fica
-// completa, a animação quase para (a câmera ainda respira) e o texto daquele tópico
-// aparece. Pares [scroll, tempo]; entre eles, curva suave (desacelera ao chegar).
+// Scroll → tempo da animação. Cada montagem acontece sem texto por cima, em velocidade
+// constante; quando ela fica completa, a animação PARA (quadro fixo) e o texto daquele
+// tópico aparece. Nada de câmera lenta: com vídeo, desacelerar vira quadros "pulando".
+// Pares [scroll, tempo], interpolados em linha reta.
 export const TIMELINE = [
   [0, 0], // peças soltas no escuro (tópico 1)
   [0.1, 0.085],
-  [0.36, 0.476], // caule + pétalas: flor completa
-  [0.46, 0.482], // pausa: tópico 2
-  [0.56, 0.605], // primeiros canteiros completos
-  [0.66, 0.62], // pausa: tópico 3
+  [0.36, 0.478], // caule + pétalas: flor completa
+  [0.46, 0.478], // pausa: tópico 2
+  [0.56, 0.61], // primeiros canteiros completos
+  [0.66, 0.61], // pausa: tópico 3
   [0.86, 0.88], // caminho do jardim (etiquetas dos projetos) até o buquê
   [1, 1], // buquê (tópico 4)
 ]
@@ -66,7 +67,7 @@ export function animAt(s) {
     const [s1, p1] = TIMELINE[i]
     if (s <= s1) {
       const [s0, p0] = TIMELINE[i - 1]
-      return lerp(p0, p1, smooth((s - s0) / (s1 - s0)))
+      return p0 + (p1 - p0) * ((s - s0) / (s1 - s0))
     }
   }
   return 1
