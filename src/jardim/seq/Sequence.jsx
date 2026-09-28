@@ -22,6 +22,12 @@ export default function Sequence({ onManifest }) {
     const onPointer = () => (pointerSeen = true)
     window.addEventListener('pointermove', onPointer, { once: true })
 
+    const coarse = matchMedia('(pointer: coarse)').matches
+    // tamanho do palco: no celular, a altura grande da tela (barra de endereço escondida)
+    const stageSize = () => {
+      const el = canvas.current.parentElement
+      return [el.clientWidth || window.innerWidth, el.clientHeight || window.innerHeight, window.devicePixelRatio || 1]
+    }
     let manifest = null
     let ext = 'webp'
     let readySent = false
@@ -42,10 +48,19 @@ export default function Sequence({ onManifest }) {
       player?.dispose()
       const pl = new SequencePlayer(canvas.current, manifest, variant, ext)
       player = pl
-      pl.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+      pl.resize(...stageSize())
       state.seq = { manifest, variant, player: pl }
       state.totalPieces = manifest.built[manifest.built.length - 1] + (state.bouquetCount || 0)
       onManifest?.(manifest, variant)
+
+      if (pl.video) {
+        // vídeo: pronto quando o arquivo chegou e o primeiro quadro está na GPU
+        pl.onVideoReady = () => pl === player && ready()
+        pl.load((f) => pl === player && window.dispatchEvent(new CustomEvent('jardim:progress', { detail: f })))
+          .then(() => pl === player && window.dispatchEvent(new Event('jardim:loaded')))
+          .catch(() => pl === player && fail())
+        return
+      }
 
       // pronto quando o primeiro passo grosso (1 a cada 16) chegou e o frame 0 decodificou
       const coarse = Math.ceil(pl.src.main.length / 16) + Math.ceil(pl.src.lit.length / 4) + 1
@@ -56,9 +71,10 @@ export default function Sequence({ onManifest }) {
         else fail()
       }
       let armed = false
-      pl.load((n, total) => {
+      pl.load((f) => {
         if (pl !== player) return
-        window.dispatchEvent(new CustomEvent('jardim:progress', { detail: n / total }))
+        window.dispatchEvent(new CustomEvent('jardim:progress', { detail: f }))
+        const n = pl.loaded
         if (!armed && n >= coarse) {
           armed = true
           whenDecoded()
@@ -96,10 +112,17 @@ export default function Sequence({ onManifest }) {
     }
     init()
 
+    // No celular, a barra de endereço some/aparece ao rolar e dispara 'resize' só na altura.
+    // Isso não pode redimensionar o canvas (a imagem "pularia" e o buffer da GPU seria recriado
+    // no meio do scroll): só largura ou orientação contam; a altura é a maior da tela (lvh).
+    let lastW = window.innerWidth
     const onResize = () => {
       if (!player) return
+      const w = window.innerWidth
+      if (coarse && w === lastW) return
+      lastW = w
       if (pickVariant() !== state.seq.variant) start(pickVariant())
-      else player.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1)
+      else player.resize(...stageSize())
     }
     window.addEventListener('resize', onResize)
 
@@ -107,7 +130,7 @@ export default function Sequence({ onManifest }) {
       const now = performance.now()
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
-      state.p = damp(state.p, state.progress, 7, dt)
+      state.p = damp(state.p, state.progress, coarse ? 14 : 7, dt)
       const pt = state.pointer
       const t = now / 1000
       // sem mouse (toque) a lanterna passeia sozinha; giroscópio assume quando existe
@@ -142,7 +165,9 @@ export default function Sequence({ onManifest }) {
       const H = window.innerHeight
       const torchAmt = 1 - smooth(invLerp(0.07, 0.1, P))
       const torch = { x: (pt.sx * 0.5 + 0.5) * W, y: (-pt.sy * 0.5 + 0.5) * H, amount: torchAmt }
-      const zoom = 1 + 0.025 * par
+      // saindo do hero: a cena chega de perto (zoom) e assenta enquanto a imagem do hero some
+      const heroIn = 1 - smooth(invLerp(0.2, 1, state.hero))
+      const zoom = 1 + 0.025 * par + 0.14 * heroIn
       const px = -pt.sx * 10 * par
       const py = pt.sy * 7 * par
 
@@ -174,7 +199,8 @@ export default function Sequence({ onManifest }) {
       // só redesenha quando algo visível mudou (economia de bateria/GPU)
       const r2 = (v) => Math.round(v * 100)
       const sig = [r2(fs), r2(torch.x / 10), r2(torch.y / 10), r2(torchAmt), r2(zoom * 10), r2(px), r2(py), r2(B.turnAlpha), B.turnAlpha > 0.001 ? r2(turnK) : 0, W, H].join()
-      if (player.needsDraw(sig)) {
+      // hero ainda opaco por cima: nada a desenhar
+      if (state.hero > 0.25 && player.needsDraw(sig)) {
         player.draw(fs, { zoom, px, py, dir, torch })
         if (B.turnAlpha > 0.001) player.drawTurn(turnK, B.turnAlpha)
       }

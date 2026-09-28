@@ -23,7 +23,7 @@ const VIEWPORTS = [
   { name: 'phone-360', width: 360, height: 740, mobile: true },
   { name: 'phone-land', width: 844, height: 390, mobile: true },
 ].filter((v) => !ONLY || ONLY.includes(v.name))
-const POINTS = (process.env.POINTS || '0,0.05,0.13,0.2,0.4,0.53,0.65,0.75,0.87,0.95').split(',').map(Number)
+const POINTS = (process.env.POINTS || '-1,-0.5,0,0.05,0.13,0.2,0.4,0.53,0.65,0.75,0.87,0.95').split(',').map(Number)
 
 // roda na página: coleta problemas do estado atual
 function inspect() {
@@ -63,7 +63,6 @@ function inspect() {
   add('capítulo', '.ch.is-on > *')
   add('dica-buquê', '.bq-hint')
   add('som', '.sound')
-  add('dica-scroll', '.scroll-hint')
   add('etiqueta', '.tag .tag__card')
   const hit = (a, b) => a.left < b.right - 2 && b.left < a.right - 2 && a.top < b.bottom - 2 && b.top < a.bottom - 2
   for (let i = 0; i < blocks.length; i++)
@@ -168,9 +167,14 @@ if (!process.env.SKIP_ROBUST) {
     page.on('pageerror', (e) => errs.push('JS: ' + e.message))
     await page.goto(`${BASE}/?gate=0`)
     await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
+    // já dentro da experiência (no hero o canvas fica coberto e não é desenhado)
+    await page.evaluate(() => window.__jump(0.3))
+    await page.waitForTimeout(800)
     const v1 = await page.evaluate(() => window.__state.seq.variant)
     await page.setViewportSize({ width: 844, height: 390 })
-    await page.waitForTimeout(2500)
+    // a variante nova baixa o próprio vídeo: espera o primeiro quadro chegar
+    await page.waitForFunction(() => window.__state.seq.variant === 'desktop' && window.__state.seq.player.cur, null, { timeout: 60000 }).catch(() => {})
+    await page.waitForTimeout(600)
     const v2 = await page.evaluate(() => window.__state.seq.variant)
     const drawn = await page.evaluate(() => {
       const c = document.querySelector('canvas.seq')

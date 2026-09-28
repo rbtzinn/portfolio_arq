@@ -1,12 +1,12 @@
-// Player de sequência de imagens ligado ao scroll, desenhado num <canvas> 2D.
+// Player da animação renderizada no Blender, ligado ao scroll e desenhado em WebGL.
 //
-// - Carregamento progressivo: primeiro 1 a cada 16 frames, depois 8, 4, 2, 1 — o scroll
-//   funciona desde o início usando o frame carregado mais próximo.
-// - Os arquivos (AVIF ou WebP) ficam comprimidos na memória; só uma janela em volta do
-//   frame atual é decodificada (createImageBitmap, fora da thread principal).
-// - Entre dois frames, um crossfade suaviza o scroll lento.
-// - "Lanterna": no trecho escuro, a versão iluminada do mesmo frame aparece por uma
-//   máscara radial que segue o cursor/giroscópio.
+// - Sequência principal: um vídeo H.264 curto (decodificado pelo hardware do aparelho).
+//   O scroll só muda o currentTime; cada quadro novo vira textura e entra com um
+//   crossfade de ~90 ms — leve até em celular e sem "degraus" entre frames.
+// - O vídeo é baixado inteiro antes (blob local): buscar um quadro é instantâneo, inclusive
+//   no Safari, que não busca bem em vídeo por streaming.
+// - Imagens (AVIF ou WebP) só onde o vídeo não serve: a versão iluminada da lanterna
+//   (máscara radial que segue o ponteiro) e o turntable do buquê (com alfa).
 
 const AVIF_PROBE =
   'data:image/avif;base64,AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAAD5bWV0YQAAAAAAAAAvaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAFBpY3R1cmVIYW5kbGVyAAAAAA5waXRtAAAAAAABAAAAHmlsb2MAAAAARAAAAQABAAAAAQAAASEAAAAWAAAAKGlpbmYAAAAAAAEAAAAaaW5mZQIAAAAAAQAAYXYwMUNvbG9yAAAAAGppcHJwAAAAS2lwY28AAAAUaXNwZQAAAAAAAAACAAAAAgAAABBwaXhpAAAAAAMICAgAAAAMYXYxQ4EADAAAAAATY29scm5jbHgAAgACAAIAAAAAF2lwbWEAAAAAAAAAAQABBAECgwQAAAAebWRhdAoFGAA2wCAyDRgAAABQAAAAALASmcg='
@@ -35,6 +35,8 @@ export class SequencePlayer {
     if (this.glr)
       this.glr.onRestore = () => {
         this.bitmaps.clear() // texturas antigas morreram com o contexto
+        this.cur = this.prev = null
+        if (this.video) this.seek(this.want, true)
         this.dirty = true
       }
     this.m = manifest
@@ -46,8 +48,11 @@ export class SequencePlayer {
     this.blobs = { main: new Map(), lit: new Map(), turn: new Map() }
     this.bitmaps = new Map() // "modo:i" → ImageBitmap (LRU)
     this.decoding = new Set()
+    this.uploads = new Map() // decodificados aguardando envio à GPU
+    this.uploadBudget = 1
     // texturas/bitmaps decodificados mantidos (janela em volta do frame atual)
     this.maxBitmaps = matchMedia('(pointer: coarse)').matches ? 22 : 34
+    this.ahead = 10 // frames pré-carregados à frente na direção da rolagem
     this.iw = this.v.size[0]
     this.ih = this.v.size[1]
     this.fit = { s: 1, x: 0, y: 0, w: 0, h: 0 }
@@ -56,6 +61,94 @@ export class SequencePlayer {
     this.loaded = 0
     this.total = this.src.main.length + this.src.lit.length + this.src.turn.length
     this.aborted = false
+    // sequência principal em vídeo (manifest novo); sem ele, frames de imagem como antes
+    this.fps = this.v.main.fps || 30
+    this.video = this.v.main.video ? this.makeVideo() : null
+    this.cur = null // textura do quadro atual do vídeo
+    this.prev = null // textura do quadro anterior (crossfade)
+    this.fadeAt = 0
+    this.shown = -1
+    this.want = 0
+    this.seeking = false
+    this.videoReady = false
+  }
+
+  makeVideo() {
+    const v = document.createElement('video')
+    v.muted = true
+    v.playsInline = true
+    v.preload = 'auto'
+    v.setAttribute('playsinline', '')
+    v.setAttribute('aria-hidden', 'true')
+    // no DOM (invisível): o iOS só decodifica quadros de vídeos anexados à página
+    v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none'
+    document.body.appendChild(v)
+    v.addEventListener('seeked', () => this.onSeeked())
+    return v
+  }
+
+  // baixa o vídeo inteiro (com progresso) e deixa o primeiro quadro pronto
+  async loadVideo(onProgress) {
+    // H.264 (decodificação por hardware em tudo, inclusive iPhone); VP9 onde não houver H.264
+    const h264 = this.video.canPlayType('video/mp4; codecs="avc1.640028"')
+    const file = !h264 && this.v.main.videoAlt ? this.v.main.videoAlt : this.v.main.video
+    const res = await fetch(this.base + file)
+    if (!res.ok) throw new Error(res.status)
+    const total = +res.headers.get('content-length') || 0
+    let blob
+    if (res.body && total) {
+      const reader = res.body.getReader()
+      const parts = []
+      let got = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done || this.aborted) break
+        parts.push(value)
+        got += value.length
+        onProgress?.(got / total)
+      }
+      blob = new Blob(parts, { type: file.endsWith('.webm') ? 'video/webm' : 'video/mp4' })
+    } else blob = await res.blob()
+    if (this.aborted) return
+    const v = this.video
+    this.videoUrl = URL.createObjectURL(blob)
+    await new Promise((ok, err) => {
+      v.addEventListener('loadeddata', ok, { once: true })
+      v.addEventListener('error', () => err(new Error('video')), { once: true })
+      v.src = this.videoUrl
+      v.load()
+    })
+    this.videoReady = true
+    await new Promise((ok) => {
+      this.onFirst = ok
+      this.seek(this.want, true)
+    })
+  }
+
+  // pede o quadro i do vídeo; um pedido por vez (o último pedido vence)
+  seek(i, force = false) {
+    this.want = i
+    if (!this.videoReady || this.seeking || (i === this.shown && !force)) return
+    this.seeking = true
+    this.pending = i
+    this.video.currentTime = (i + 0.5) / this.fps
+  }
+
+  onSeeked() {
+    if (this.aborted) return
+    this.seeking = false
+    this.shown = this.pending
+    if (this.glr) {
+      // o quadro que estava na tela vira o "anterior" do crossfade; o novo sobe na outra textura
+      const old = this.prev
+      this.prev = this.cur
+      this.cur = this.glr.uploadVideo(this.video, old)
+      this.fadeAt = this.prev ? performance.now() : 0
+    } else this.cur = this.video
+    this.dirty = true
+    this.onFirst?.()
+    this.onFirst = null
+    if (this.want !== this.shown) this.seek(this.want)
   }
 
   url(mode, i) {
@@ -73,14 +166,14 @@ export class SequencePlayer {
         order.push([mode, i])
       }
     }
-    const n = this.src.main.length
-    push('main', 0)
+    const n = this.video ? 0 : this.src.main.length
+    if (n) push('main', 0)
     for (let i = 0; i < this.src.lit.length; i += 4) push('lit', i)
     for (const step of [16, 8, 4, 2, 1]) {
       for (let i = 0; i < n; i += step) push('main', i)
       if (step === 4) for (let i = 0; i < this.src.lit.length; i++) push('lit', i)
     }
-    push('main', n - 1)
+    if (n) push('main', n - 1)
     // turntable do buquê por último, também do grosso ao fino
     const nt = this.src.turn.length
     for (const step of [8, 4, 2, 1]) for (let i = 0; i < nt; i += step) push('turn', i)
@@ -89,6 +182,14 @@ export class SequencePlayer {
 
   async load(onProgress, concurrency = 6) {
     const order = this.loadOrder()
+    // com vídeo: o vídeo pesa ~80% do progresso e chega primeiro (é o que libera a tela)
+    const imgs = order.length || 1
+    if (this.video) {
+      await this.loadVideo((f) => onProgress?.(f * 0.8))
+      if (this.aborted) return
+      this.onVideoReady?.()
+    }
+    const report = () => onProgress?.(this.video ? 0.8 + 0.2 * (this.loaded / imgs) : this.loaded / imgs)
     let next = 0
     const worker = async () => {
       while (next < order.length && !this.aborted) {
@@ -101,13 +202,13 @@ export class SequencePlayer {
           /* frame ausente: o vizinho carregado cobre */
         }
         this.loaded++
-        onProgress?.(this.loaded, order.length)
+        report()
       }
     }
     await Promise.all(Array.from({ length: concurrency }, worker))
   }
 
-  decode(mode, i) {
+  decode(mode, i, urgent = false) {
     const key = mode + ':' + i
     if (this.bitmaps.has(key)) {
       const b = this.bitmaps.get(key)
@@ -115,30 +216,44 @@ export class SequencePlayer {
       this.bitmaps.set(key, b) // renova no LRU
       return b
     }
+    // decodificado, esperando a vez de ir para a GPU: o frame da tela sobe na hora,
+    // os de pré-carga no máximo um por quadro (vários envios num quadro = travada)
+    const ready = this.uploads.get(key)
+    if (ready) {
+      if (!urgent && this.uploadBudget <= 0) return null
+      if (!urgent) this.uploadBudget--
+      this.uploads.delete(key)
+      return this.store(key, this.glr.upload(ready), ready)
+    }
     const blob = this.blobs[mode].get(i)
     // no máximo 3 decodificações ao mesmo tempo: as mais próximas pedem primeiro
-    if (blob && !this.decoding.has(key) && this.decoding.size < 3) {
+    if (blob && !this.decoding.has(key) && this.decoding.size < 3 && this.uploads.size < 8) {
       this.decoding.add(key)
       createImageBitmap(blob, { premultiplyAlpha: 'premultiply', imageOrientation: 'none' })
         .then((bmp) => {
           if (this.aborted) return bmp.close?.()
-          let entry = bmp
-          if (this.glr) {
-            entry = this.glr.upload(bmp) // vai para a GPU uma vez
-            bmp.close?.()
-          }
-          this.bitmaps.set(key, entry)
           this.dirty = true // um frame melhor chegou: vale redesenhar
-          while (this.bitmaps.size > this.maxBitmaps) {
-            const [k, old] = this.bitmaps.entries().next().value
-            this.bitmaps.delete(k)
-            this.free(old)
+          if (this.glr) {
+            this.uploads.set(key, bmp) // sobe para a GPU no próximo quadro, com orçamento
+            return
           }
+          this.store(key, bmp)
         })
         .catch(() => {})
         .finally(() => this.decoding.delete(key))
     }
     return null
+  }
+
+  store(key, entry, bmp) {
+    bmp?.close?.()
+    this.bitmaps.set(key, entry)
+    while (this.bitmaps.size > this.maxBitmaps) {
+      const [k, old] = this.bitmaps.entries().next().value
+      this.bitmaps.delete(k)
+      this.free(old)
+    }
+    return entry
   }
 
   free(entry) {
@@ -226,12 +341,14 @@ export class SequencePlayer {
     const loc = this.locate('main', fs)
     if (!loc) return
     const [a, b, t] = loc
-    const A = this.decode('main', a) || this.nearest('main', a)
-    const B = t > 0.02 ? this.decode('main', b) : null
+    this.uploadBudget = 1
+    if (this.video) return this.drawVideo(fs, a, b, t, torch)
+    const A = this.decode('main', a, true) || this.nearest('main', a)
+    const B = t > 0.02 ? this.decode('main', b, true) : null
     if (this.glr) return this.drawGL(fs, A, B, t, torch, dir, a)
     this.drawBitmap(ctx, A)
     // crossfade curto no meio do intervalo: menos tempo em dupla exposição
-    if (B && B !== A) this.drawBitmap(ctx, B, smooth(clamp((t - 0.2) / 0.6)))
+    if (B && B !== A) this.drawBitmap(ctx, B, t /* frames com motion blur: crossfade linear e contínuo */)
 
     // pré-decodifica à frente na direção do scroll
     for (let k = 1; k <= 6; k++) this.decode('main', clamp(a + k * dir, 0, this.src.main.length - 1) | 0)
@@ -264,8 +381,23 @@ export class SequencePlayer {
     }
   }
 
+  drawVideo(fs, a, b, t, torch) {
+    this.seek(t < 0.5 ? a : b)
+    if (!this.cur) return
+    if (!this.glr) {
+      // canvas 2D (sem WebGL): o próprio vídeo, sem crossfade nem lanterna
+      const r = this.ratio
+      const f = this.fit
+      this.ctx.drawImage(this.video, f.x * r, f.y * r, f.w * r, f.h * r)
+      return
+    }
+    const k = this.fadeAt ? clamp((performance.now() - this.fadeAt) / 90) : 1
+    if (k < 1) this.dirty = true // continua redesenhando até o crossfade terminar
+    this.drawGL(fs, k < 1 ? this.prev : this.cur, k < 1 ? this.cur : null, k, torch, 1, -1)
+  }
+
   drawGL(fs, A, B, t, torch, dir, a) {
-    this.prefetch(a, dir)
+    if (a >= 0) this.prefetch(a, dir)
     if (!A) return
     const r = this.ratio
     const f = this.fit
@@ -274,14 +406,14 @@ export class SequencePlayer {
     let lt = 0
     if (torch && torch.amount > 0.001 && this.src.lit.length) {
       const l = this.locate('lit', Math.min(fs, this.src.lit[this.src.lit.length - 1]))
-      LA = this.decode('lit', l[0]) || this.nearest('lit', l[0])
-      LB = l[2] > 0.02 ? this.decode('lit', l[1]) : null
+      LA = this.decode('lit', l[0], true) || this.nearest('lit', l[0])
+      LB = l[2] > 0.02 ? this.decode('lit', l[1], true) : null
       lt = l[2]
     }
     this.glr.drawMain({
       A,
       B: B && B !== A ? B : null,
-      t: smooth(clamp((t - 0.2) / 0.6)),
+      t: t /* frames com motion blur: crossfade linear e contínuo */,
       LA,
       LB,
       lt,
@@ -292,7 +424,7 @@ export class SequencePlayer {
 
   prefetch(a, dir) {
     const n = this.src.main.length
-    for (let k = 1; k <= 6; k++) this.decode('main', clamp(a + k * dir, 0, n - 1) | 0)
+    for (let k = 1; k <= this.ahead; k++) this.decode('main', clamp(a + k * dir, 0, n - 1) | 0)
     this.decode('main', clamp(a - dir, 0, n - 1) | 0)
   }
 
@@ -304,9 +436,9 @@ export class SequencePlayer {
     const i0 = ((Math.floor(k) % n) + n) % n
     const i1 = (i0 + 1) % n
     const t = k - Math.floor(k)
-    const A = this.decode('turn', i0) || this.nearestTurn(i0)
+    const A = this.decode('turn', i0, true) || this.nearestTurn(i0)
     if (!A) return false
-    const B = t > 0.02 ? this.decode('turn', i1) : null
+    const B = t > 0.02 ? this.decode('turn', i1, true) : null
     for (let d = 1; d <= 4; d++) this.decode('turn', (i0 + d) % n)
     const [x0, y0, x1, y1] = this.v.turn.crop
     const [rw, rh] = this.v.turn.res
@@ -358,8 +490,21 @@ export class SequencePlayer {
 
   dispose() {
     this.aborted = true
+    for (const b of this.uploads.values()) b.close?.()
+    this.uploads.clear()
     for (const b of this.bitmaps.values()) this.free(b)
     this.bitmaps.clear()
+    if (this.glr) {
+      this.glr.release(this.cur)
+      this.glr.release(this.prev)
+    }
+    this.cur = this.prev = null
+    if (this.video) {
+      this.video.removeAttribute('src')
+      this.video.load()
+      this.video.remove()
+    }
+    if (this.videoUrl) URL.revokeObjectURL(this.videoUrl)
   }
 }
 

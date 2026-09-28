@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sequence from './seq/Sequence.jsx'
 import Overlay from './ui/Overlay.jsx'
-import Cursor, { Grain } from './ui/Cursor.jsx'
 import { setupScroll } from './lib/scroll.js'
 import { projects } from '../data/projects.js'
 import { useInput } from './lib/input.js'
@@ -58,9 +57,8 @@ export default function App() {
           </Suspense>
         )}
       </div>
-      <Grain />
       <Overlay projects={list} bom={bom} />
-      <Cursor />
+      <div className="hero-space" aria-hidden="true" />
       <div ref={track} className="track" aria-hidden="true" />
     </>
   )
