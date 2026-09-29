@@ -15,6 +15,7 @@ export default function Scene3D() {
     const engine = Engine.create(canvas.current, { coarse })
     if (!engine) {
       // sem WebGL: o hero continua; a interface mostra o aviso
+      state.failed = true
       window.dispatchEvent(new Event('jardim:error'))
       return
     }

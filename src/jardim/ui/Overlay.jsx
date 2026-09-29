@@ -64,6 +64,7 @@ export default function Overlay({ projects }) {
     const done = () => setReady(true)
     const onError = () => setFailed(true)
     if (state.ready) done()
+    if (state.failed) onError() // a cena pode ter falhado antes desta escuta existir
     window.addEventListener('jardim:progress', onProgress)
     window.addEventListener('jardim:ready', done)
     window.addEventListener('jardim:error', onError)
