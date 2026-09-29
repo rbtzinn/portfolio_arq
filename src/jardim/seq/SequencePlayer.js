@@ -24,6 +24,7 @@ export function detectFormat() {
 }
 
 import { GLRenderer } from './gl.js'
+import { PlayDriver } from './playdrive.js'
 
 const pad = (n) => String(n).padStart(4, '0')
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v))
@@ -67,6 +68,14 @@ export class SequencePlayer {
     // sequência principal em vídeo (manifest novo); sem ele, frames de imagem como antes
     this.fps = this.v.main.fps || 30
     this.video = videoMode ? this.makeVideo() : null
+    // celular: rolagem por reprodução (vídeo normal + cópia invertida; ver playdrive.js).
+    // ?vmode=seek | play força um dos modos (testes)
+    const vmode = new URLSearchParams(location.search).get('vmode')
+    const touch = matchMedia('(pointer: coarse)').matches
+    this.playMode = videoMode && !!this.v.main.videoRev && vmode !== 'seek' && (touch || vmode === 'play')
+    this.vFwd = this.video
+    this.vRev = this.playMode ? this.makeVideo(true) : null
+    this.driver = null
     this.videoXf = ''
     this.overlayEmpty = true
     this.shown = -1
@@ -75,7 +84,7 @@ export class SequencePlayer {
     this.videoReady = false
   }
 
-  makeVideo() {
+  makeVideo(hidden = false) {
     const v = document.createElement('video')
     v.muted = true
     v.playsInline = true
@@ -89,7 +98,7 @@ export class SequencePlayer {
     // atrás do canvas, no mesmo palco; tamanho nativo + transform (só compositor)
     this.canvas.parentElement.insertBefore(v, this.canvas)
     v.style.opacity = '0' // aparece com o primeiro quadro
-    v.addEventListener('seeked', () => this.onSeeked())
+    if (!hidden) v.addEventListener('seeked', () => this.onSeeked())
     return v
   }
 
@@ -129,6 +138,31 @@ export class SequencePlayer {
       this.onFirst = ok
       this.seek(this.want, true)
     })
+    // modo reprodução só com H.264 (a cópia invertida existe só nesse formato)
+    if (this.playMode && h264 && !this.aborted) {
+      this.driver = new PlayDriver(this.vFwd, this.vRev, this.src.main.length, this.fps)
+      this.loadReverse() // em segundo plano: até chegar, voltar usa busca
+    } else this.playMode = false
+  }
+
+  async loadReverse() {
+    try {
+      const res = await fetch(this.base + this.v.main.videoRev)
+      if (!res.ok) return
+      const blob = await res.blob()
+      if (this.aborted) return
+      this.revUrl = URL.createObjectURL(blob)
+      const v = this.vRev
+      await new Promise((ok, err) => {
+        v.addEventListener('loadeddata', ok, { once: true })
+        v.addEventListener('error', err, { once: true })
+        v.src = this.revUrl
+        v.load()
+      })
+      if (!this.aborted) this.driver.revReady = true
+    } catch {
+      /* sem a cópia invertida: voltar continua funcionando por busca */
+    }
   }
 
   // pede o quadro i do vídeo; um pedido por vez (o último pedido vence)
@@ -149,7 +183,7 @@ export class SequencePlayer {
       this.onFirst()
       this.onFirst = null
     }
-    if (this.want !== this.shown) this.seek(this.want)
+    if (!this.driver && this.want !== this.shown) this.seek(this.want)
   }
 
   url(mode, i) {
@@ -383,11 +417,21 @@ export class SequencePlayer {
   }
 
   drawVideo(fs, a, b, t, torch) {
-    this.seek(t < 0.5 ? a : b)
-    // enquadramento "cover" + zoom/paralaxe: transform no próprio vídeo
+    if (this.driver && !this.onFirst) {
+      // reprodução: toca (para frente ou a cópia invertida) até alcançar o quadro do dedo
+      if (this.driver.drive(a + t)) this.dirty = true // continua conduzindo no próximo quadro
+      this.video = this.driver.active
+      this.want = Math.round(a + t)
+      this.shown = this.driver.frameOf(this.video)
+    } else this.seek(t < 0.5 ? a : b)
+    // enquadramento "cover" + zoom/paralaxe: transform no próprio vídeo (nas duas cópias)
     const f = this.fit
     const xf = `translate3d(${f.x.toFixed(1)}px, ${f.y.toFixed(1)}px, 0) scale(${f.s.toFixed(5)})`
-    if (xf !== this.videoXf) this.video.style.transform = this.videoXf = xf
+    if (xf !== this.videoXf) {
+      this.videoXf = xf
+      this.vFwd.style.transform = xf
+      if (this.vRev) this.vRev.style.transform = xf
+    }
     this.frameCleared = false
     const lit = torch && torch.amount > 0.001 && this.src.lit.length && this.glr
     if (lit) {
@@ -534,12 +578,15 @@ export class SequencePlayer {
     this.uploads.clear()
     for (const b of this.bitmaps.values()) this.free(b)
     this.bitmaps.clear()
-    if (this.video) {
-      this.video.removeAttribute('src')
-      this.video.load()
-      this.video.remove()
+    for (const v of [this.vFwd, this.vRev]) {
+      if (!v) continue
+      v.pause()
+      v.removeAttribute('src')
+      v.load()
+      v.remove()
     }
     if (this.videoUrl) URL.revokeObjectURL(this.videoUrl)
+    if (this.revUrl) URL.revokeObjectURL(this.revUrl)
   }
 }
 
