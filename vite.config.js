@@ -5,6 +5,8 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
+      // site + protótipo da flor em 3D em tempo real (/flor)
+      input: { main: 'index.html', flor: 'flor.html' },
       output: {
         // three/r3f isolados: só são baixados no final (buquê)
         manualChunks(id) {
