@@ -35,5 +35,11 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/flor",
+      "destination": "/flor.html"
+    }
   ]
 }
