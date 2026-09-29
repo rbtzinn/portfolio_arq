@@ -23,7 +23,7 @@ const VIEWPORTS = [
   { name: 'phone-360', width: 360, height: 740, mobile: true },
   { name: 'phone-land', width: 844, height: 390, mobile: true },
 ].filter((v) => !ONLY || ONLY.includes(v.name))
-const POINTS = (process.env.POINTS || '-1,-0.5,0,0.05,0.13,0.2,0.4,0.53,0.65,0.75,0.87,0.95').split(',').map(Number)
+const POINTS = (process.env.POINTS || '-1,-0.5,0,0.05,0.13,0.2,0.4,0.5,0.58,0.65,0.75,0.87,0.95').split(',').map(Number)
 
 // roda na página: coleta problemas do estado atual
 function inspect() {
@@ -76,14 +76,9 @@ function inspect() {
   // contraste do texto do capítulo sobre o frame (lê o canvas; ignora scrims → conservador)
   const cv = document.querySelector('canvas.seq')
   // WebGL: lê pelo renderizador (o buffer não é preservado); 2D: getImageData
-  // vídeo + camada: player.sample; WebGL: lê pelo renderizador; 2D: getImageData
-  const pl = window.__state?.seq?.player
-  const glr = pl?.glr
-  const ctx = pl?.video
-    ? { getImageData: (x, y, w, h) => ({ data: pl.sample(x, y, w, h) }) }
-    : glr
-      ? { getImageData: (x, y, w, h) => ({ data: glr.read(x, y, w, h) || new Uint8Array(w * h * 4) }) }
-      : cv?.getContext('2d')
+  // cena 3D: o motor desenha e lê os pixels antes da composição
+  const eng = window.__state?.engine
+  const ctx = eng ? { getImageData: (x, y, w, h) => ({ data: eng.sample(x, y, w, h) }) } : null
   const lum = (r, g, b) => {
     const f = (c) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
@@ -150,7 +145,8 @@ for (const vp of VIEWPORTS) {
   await page.waitForTimeout(1200)
   for (const p of POINTS) {
     await page.evaluate((p) => window.__jump(p), p)
-    await page.waitForTimeout(p >= 0.86 ? 9000 : 1600)
+    // desenho por software aqui (sem GPU): o jardim leva mais tempo por quadro
+    await page.waitForTimeout(p >= 0.86 ? 9000 : p >= 0.45 ? 3500 : 1600)
     const issues = await page.evaluate(inspect)
     const file = path.join(OUT, `${vp.name}_${p}.png`)
     await page.screenshot({ path: file })
@@ -163,7 +159,7 @@ for (const vp of VIEWPORTS) {
 }
 // ---------- robustez ----------
 if (!process.env.SKIP_ROBUST) {
-  // 1) girar o aparelho: retrato → paisagem troca a variante da sequência
+  // 1) girar o aparelho: retrato → paisagem redimensiona a cena sem quebrar
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, ignoreHTTPSErrors: true })
     const page = await ctx.newPage()
@@ -171,40 +167,39 @@ if (!process.env.SKIP_ROBUST) {
     page.on('pageerror', (e) => errs.push('JS: ' + e.message))
     await page.goto(`${BASE}/?gate=0`)
     await page.waitForSelector('.ui.is-ready', { timeout: 120000 })
-    // já dentro da experiência (no hero o canvas fica coberto e não é desenhado)
     await page.evaluate(() => window.__jump(0.3))
-    await page.waitForTimeout(800)
-    const v1 = await page.evaluate(() => window.__state.seq.variant)
+    await page.waitForTimeout(2500)
     await page.setViewportSize({ width: 844, height: 390 })
-    // a variante nova baixa o próprio vídeo: espera o primeiro quadro chegar
-    await page.waitForFunction(() => window.__state.seq.variant === 'desktop' && window.__state.seq.player.shown >= 0, null, { timeout: 60000 }).catch(() => {})
-    await page.waitForTimeout(600)
-    const v2 = await page.evaluate(() => window.__state.seq.variant)
-    const drawn = await page.evaluate(() => {
+    await page.waitForTimeout(3500)
+    const r = await page.evaluate(() => {
       const c = document.querySelector('canvas.seq')
-      const pl = window.__state.seq.player
-      const d = pl.video ? pl.sample(c.width >> 1, c.height >> 1, 1, 1) : pl.glr ? pl.glr.read(c.width >> 1, c.height >> 1, 1, 1) : c.getContext('2d').getImageData(c.width / 2, c.height / 2, 1, 1).data
-      return !!d && d[0] + d[1] + d[2] > 0
+      const d = window.__state.engine.sample(c.width >> 1, c.height >> 1, 1, 1)
+      return { drawn: d[0] + d[1] + d[2] > 0, w: window.__state.engine.W }
     })
     const issues = [...errs]
-    if (!(v1 === 'mobile' && v2 === 'desktop')) issues.push(`troca de variante falhou: ${v1} → ${v2}`)
-    if (!drawn) issues.push('canvas vazio após girar')
+    if (r.w !== 844) issues.push(`cena não acompanhou a rotação (largura ${r.w})`)
+    if (!r.drawn) issues.push('canvas vazio após girar')
     if (issues.length) report.push({ vp: 'girar', p: '-', issues })
     total += issues.length
     await ctx.close()
   }
-  // 2) frames indisponíveis: o carregamento mostra erro com "Tentar de novo"
+  // 2) sem WebGL: o hero continua e aparece o aviso com "Tentar de novo"
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ignoreHTTPSErrors: true })
+    await ctx.addInitScript(() => {
+      const orig = HTMLCanvasElement.prototype.getContext
+      HTMLCanvasElement.prototype.getContext = function (type, ...a) {
+        return /webgl/.test(type) ? null : orig.call(this, type, ...a)
+      }
+    })
     const page = await ctx.newPage()
-    await page.route(new RegExp('^' + BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/seq/'), (r) => r.abort())
     await page.goto(`${BASE}/?gate=0`)
     const ok = await page
       .waitForSelector('text=Tentar de novo', { timeout: 20000 })
       .then(() => true)
       .catch(() => false)
     if (!ok) {
-      report.push({ vp: 'sem rede', p: '-', issues: ['sem mensagem de erro quando os frames falham'] })
+      report.push({ vp: 'sem WebGL', p: '-', issues: ['sem mensagem de erro quando o 3D não abre'] })
       total++
     }
     await ctx.close()

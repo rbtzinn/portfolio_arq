@@ -15,51 +15,43 @@ canteiros: `src/data/projects.js`. Endereços antigos (`/jardim`, `/projetos/...
 para a raiz (`vercel.json`).
 
 ## Como funciona
-Página única do Vite (`index.html` → `src/jardim/`).
-Nenhuma imagem externa: todas as peças (tijolos com pinos, placas curvas, barras, slopes)
-são geradas em código, renderizadas no Blender e servidas como sequências AVIF/WebP.
+Página única do Vite (`index.html` → `src/jardim/`). Nenhuma imagem externa: todas as peças
+(tijolos com pinos, placas curvas, barras, slopes) são geradas em código.
 
-**Como funciona**
-- Scroll 0 → 88%: sequência de frames pré-renderizada no Blender (Cycles), desenhada com
-  WebGL (`src/jardim/seq/`): cada frame vira uma textura enviada à GPU uma vez; crossfade,
-  lanterna e buquê são contas de shader (canvas 2D só como reserva). Carregamento progressivo (1 a cada 16 frames, depois 8,
-  4, 2, 1), decodificação fora da thread principal e crossfade entre frames.
-- Trecho escuro: a versão "iluminada" dos mesmos frames aparece por uma máscara que segue o
-  cursor/giroscópio (lanterna).
-- Final (buquê híbrido): parado ou girando, é um turntable de 120 ângulos renderizado no
-  Blender (fundo transparente + sombra real), girado pelo arraste. Ao clicar, troca num
-  instante pelas mesmas peças em Three.js, que explodem com física e remontam; depois volta
-  ao render. Tudo composto sobre o último frame com a mesma câmera do Blender. O three.js
-  só é baixado nesse trecho.
-- Luz de estufa: uma treliça invisível à câmera projeta linhas de caixilho sobre o jardim.
-- Entrada com portão "Entrar com som / sem som"; ambiência e cliques de encaixe sintetizados
-  em WebAudio; títulos revelados linha a linha pelo scroll; cursor com inércia; háptica.
+**3D em tempo real** (`src/jardim/scene/`)
+- A cena inteira é desenhada ao vivo com Three.js a partir da posição do scroll, com a
+  coreografia de `src/jardim/bricks/world.js` (poses de cada peça + trilha da câmera). O
+  movimento é contínuo (60/120 Hz): não há quadros pré-renderizados nem vídeo.
+- `Engine.js`: um `InstancedMesh` por tipo de peça em cada mundo (flor, jardim, buquê) —
+  poucas dezenas de chamadas de desenho para ~5.400 peças; geometria mais simples no jardim;
+  plástico em `MeshStandardMaterial` com reflexos de estúdio pré-calculados (PMREM); uma luz
+  com sombra que acompanha o foco da câmera; resolução limitada no celular.
+- `Scene3D.jsx`: suaviza scroll e ponteiro, desenha só quando algo muda e o hero não cobre a
+  tela, projeta as etiquetas dos projetos com a câmera ao vivo, contador de peças e sons.
+- Trecho escuro: a lanterna é uma luz de verdade que segue o cursor/giroscópio; a luz da
+  estufa acende na transição.
+- `BouquetRig.js`: buquê final — monta na chegada, gira com arraste/inércia, explode com
+  física ao clicar/chacoalhar e remonta peça por peça.
+- Hero com imagem da flor (render do Blender); textos dos tópicos entram por transição CSS
+  depois de cada montagem completa; ambiência e cliques de encaixe sintetizados em WebAudio.
+- `/flor`: protótipo isolado só da flor (`flor.html`, `src/flor/`).
 
-**Pipeline de assets** (`blender/`)
-1. `npm run assets:export` — `export.mjs` usa a mesma geometria e lógica do site
-   (`src/jardim/bricks/`) e grava malhas, matrizes por frame, câmeras e etiquetas.
-2. `npm run assets:render` — `render.py` monta a cena no Blender em modo headless e
-   renderiza desktop (1600×1000), retrato (720×1280), a versão "lanterna" e o turntable
-   do buquê. Retomável (frames existentes são pulados).
-   Precisa de um Python com `bpy` (`pip install bpy`) em `PY=...`, ou `PY="blender -b -P"`.
-3. `npm run assets:encode` — `encode.py` converte com ffmpeg (AVIF 4:4:4 10 bits via
-   libaom, com alfa como imagem auxiliar no turntable, + WebP de fallback) para
-   `public/seq/` e gera `manifest.json`.
+**Blender** (`blender/`): gera as imagens do hero e do poster. `export.mjs` usa a mesma
+geometria e lógica do site e grava malhas/matrizes; `render.py` renderiza no Blender em modo
+headless (precisa de `bpy`); `encode.py` converte com ffmpeg para `public/seq/`.
 
-- `src/jardim/bricks/` geometria procedural, material ABS, flores, mundo (layout + poses + câmera)
-- `src/jardim/scene/` buquê interativo em R3F
+- `src/jardim/bricks/` geometria procedural, cores, flores, mundo (layout + poses + câmera)
+- `src/jardim/scene/` motor 3D em tempo real
 - `src/jardim/ui/` interface estilo manual de instruções
 - `src/jardim/lib/` scroll (GSAP ScrollTrigger + Lenis), entrada, áudio sintetizado
 
-`/jardim/?p=0.5` pula para um ponto da narrativa; `?fmt=webp` força o formato das imagens;
-`?gate=0` pula o portão de som.
+`/?p=0.5` pula para um ponto da narrativa; `?debug=1` mostra quadros/s e chamadas de desenho.
 
 **Auditoria de layout** — `npm run test:layout [baseURL]` (com `npm run dev` ou `vite preview`
-rodando): 8 viewports (1920×1080 até celular deitado) × 10 pontos da narrativa, procurando
-overflow, texto cortado, sobreposição de blocos, contraste sobre o frame real e erros; mais
-testes de girar o aparelho, falha de rede e foco por teclado. Screenshots em `tests/.shots/`.
+rodando): 8 viewports (1920×1080 até celular deitado) × 13 pontos da narrativa, procurando
+overflow, texto cortado, sobreposição de blocos, contraste sobre a cena real e erros; mais
+testes de girar o aparelho, navegador sem WebGL e foco por teclado. Screenshots em `tests/.shots/`.
 
 **Desempenho** — `npm run test:perf [url] [cpu]` rola a página num celular emulado (DPR 3,
 toque, CPU desacelerada) e mede quadros, tarefas longas e tempo de script/estilo/layout.
-No celular: WebP (decodifica mais rápido), sem grão/desfoque de fundo, escritas de DOM só
-quando algo muda e o 3D do buquê montado só perto do fim.
+`RANGE=a,b` mede só um trecho da experiência.
