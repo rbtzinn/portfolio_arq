@@ -126,10 +126,34 @@ export default function Sequence({ onManifest }) {
     }
     window.addEventListener('resize', onResize)
 
+    // ?debug=1: painel com quadros/s reais, modo do vídeo e atraso da imagem em relação ao dedo
+    let hud = null
+    const fpsLog = []
+    if (new URLSearchParams(location.search).has('debug')) {
+      hud = document.createElement('pre')
+      hud.style.cssText =
+        'position:fixed;left:8px;bottom:8px;z-index:99;margin:0;padding:6px 8px;font:11px/1.35 monospace;background:rgb(0 0 0 / .72);color:#9f9;pointer-events:none;border-radius:4px'
+      document.body.appendChild(hud)
+    }
+    const debug = (now) => {
+      fpsLog.push(now)
+      while (fpsLog.length && now - fpsLog[0] > 1000) fpsLog.shift()
+      if (fpsLog.length % 10 || !player) return
+      const pl = player
+      const d = pl.driver
+      hud.textContent = [
+        `fps ${fpsLog.length}  ${state.seq.variant}`,
+        `modo ${d ? 'reprodução' + (d.revReady ? '' : ' (volta: busca)') : pl.video ? 'busca' : 'imagens'}`,
+        `quadro ${pl.shown} → ${pl.want}  atraso ${Math.abs(pl.want - pl.shown)}`,
+        pl.video ? `vídeo ${pl.video.paused ? 'pausado' : '▶ ' + pl.video.playbackRate.toFixed(2) + '×'}${d && pl.video === d.rev ? ' (invertido)' : ''}` : '',
+      ].join('\n')
+    }
+
     const tick = () => {
       const now = performance.now()
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
+      if (hud) debug(now)
       // suaviza o scroll e converte em tempo da animação
       state.sp = damp(state.sp, state.scroll, coarse ? 14 : 7, dt)
       state.p = animAt(state.sp)
@@ -260,6 +284,7 @@ export default function Sequence({ onManifest }) {
     return () => {
       alive = false
       gsap.ticker.remove(tick)
+      hud?.remove()
       window.removeEventListener('resize', onResize)
       window.removeEventListener('pointermove', onPointer)
       player?.dispose()

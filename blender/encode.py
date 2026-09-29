@@ -64,7 +64,7 @@ def encode(src, dst_base, alpha=False):
     return os.path.getsize(avif), os.path.getsize(webp)
 
 
-def encode_video(files, dst, gop=4):
+def encode_video(files, dst, gop=4, webm=True):
     """PNGs → MP4 H.264, sem B-frames. Keyframe a cada `gop` quadros: qualquer quadro sai com
     no máximo gop-1 decodificações extras (celular: gop 1, cada quadro é independente)."""
     if all(fresh(dst, f) for f in files):
@@ -83,6 +83,9 @@ def encode_video(files, dst, gop=4):
         check=True,
     )
     # reserva VP9 (navegadores sem H.264, p. ex. Chromium sem codecs proprietários)
+    if not webm:
+        os.remove(lst)
+        return os.path.getsize(dst)
     webm = dst[:-4] + ".webm"
     subprocess.run(
         [args.ffmpeg, "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-r", str(args.fps),
@@ -116,6 +119,11 @@ for variant in ("desktop", "mobile"):
             os.makedirs(os.path.join(OUT, variant), exist_ok=True)
             videos.append((files, os.path.join(OUT, variant, "main.mp4"), 1 if variant == "mobile" else 4))
             v[mode].update(video=f"{variant}/main.mp4", videoAlt=f"{variant}/main.webm", fps=args.fps)
+            if variant == "mobile":
+                # a mesma sequência de trás para frente: rolar para cima também é reprodução
+                # normal (o celular toca vídeo com fluidez; buscar quadro a quadro, não)
+                videos.append((files[::-1], os.path.join(OUT, variant, "main-rev.mp4"), 1, False))
+                v[mode]["videoRev"] = f"{variant}/main-rev.mp4"
             continue
         d = os.path.join(OUT, variant, mode)
         os.makedirs(d, exist_ok=True)
