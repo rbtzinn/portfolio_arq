@@ -66,7 +66,7 @@ def encode(src, dst_base, alpha=False):
 
 def encode_video(files, dst, gop=4, webm=True):
     """PNGs → MP4 H.264, sem B-frames. Keyframe a cada `gop` quadros: qualquer quadro sai com
-    no máximo gop-1 decodificações extras (celular: gop 1, cada quadro é independente)."""
+    no máximo gop-1 decodificações extras."""
     if all(fresh(dst, f) for f in files):
         return os.path.getsize(dst)
     lst = dst + ".txt"
@@ -117,12 +117,14 @@ for variant in ("desktop", "mobile"):
         v[mode] = {"frames": idx, "path": f"{variant}/{mode}"}
         if mode == "main":
             os.makedirs(os.path.join(OUT, variant), exist_ok=True)
-            videos.append((files, os.path.join(OUT, variant, "main.mp4"), 1 if variant == "mobile" else 4))
+            # celular: o vídeo é tocado (não buscado quadro a quadro), então keyframe a cada
+            # 6 quadros basta e o arquivo fica bem menor que todo-keyframe
+            videos.append((files, os.path.join(OUT, variant, "main.mp4"), 6 if variant == "mobile" else 4))
             v[mode].update(video=f"{variant}/main.mp4", videoAlt=f"{variant}/main.webm", fps=args.fps)
             if variant == "mobile":
                 # a mesma sequência de trás para frente: rolar para cima também é reprodução
                 # normal (o celular toca vídeo com fluidez; buscar quadro a quadro, não)
-                videos.append((files[::-1], os.path.join(OUT, variant, "main-rev.mp4"), 1, False))
+                videos.append((files[::-1], os.path.join(OUT, variant, "main-rev.mp4"), 6, False))
                 v[mode]["videoRev"] = f"{variant}/main-rev.mp4"
             continue
         d = os.path.join(OUT, variant, mode)
