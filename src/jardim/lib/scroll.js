@@ -82,10 +82,9 @@ const cancelTrip = () => {
 if (typeof window !== 'undefined')
   for (const ev of ['wheel', 'touchstart', 'keydown']) window.addEventListener(ev, cancelTrip, { passive: true })
 
-// Navegação por clique: a viagem é animada no TEMPO DA ANIMAÇÃO (não na posição do scroll),
-// então o vídeo passa num ritmo uniforme até o destino — sem ficar parado atravessando as
-// pausas e sem correr mais do que a busca de quadros acompanha (~80 quadros/s no pico).
-// Os textos das pausas do caminho ficam ocultos até chegar.
+// Navegação por clique: a viagem é animada no TEMPO DA ANIMAÇÃO, num ritmo que a busca de
+// quadros do vídeo acompanha (~80 quadros/s no pico), com início e fim suaves.
+// Os textos do caminho ficam ocultos até chegar.
 function travel(targetS, then) {
   if (!lenis) return
   cancelTrip()
@@ -101,7 +100,7 @@ function travel(targetS, then) {
     ease: 'none',
     onUpdate: () => {
       const P = from + (to - from) * ease(o.u)
-      // na pausa de destino, a posição exata pedida (dentro dela o tempo quase não muda)
+      // no fim, a posição exata pedida
       const s = o.u >= 1 ? targetS : scrollAt(P)
       lenis.scrollTo(yOf(s), { immediate: true, force: true })
     },

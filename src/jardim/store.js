@@ -1,6 +1,6 @@
 // Estado global mutável, lido a cada frame (sem re-render do React).
-// `scroll` é a posição do scroll na experiência (0..1); `p` é o tempo da animação (0..1),
-// que anda devagar nas pausas de cada montagem completa (ver TIMELINE).
+// `scroll` é a posição do scroll na experiência (0..1); `p` é o tempo da animação (0..1)
+// (ver TIMELINE).
 
 export const state = {
   scroll: 0, // 0..1 vindo do ScrollTrigger (bruto)
@@ -47,19 +47,11 @@ export const CH = {
   bouquet: [0.84, 1.0],
 }
 
-// Scroll → tempo da animação. Cada montagem acontece sem texto por cima, em velocidade
-// constante; quando ela fica completa, a animação PARA (quadro fixo) e o texto daquele
-// tópico aparece. Nada de câmera lenta: com vídeo, desacelerar vira quadros "pulando".
-// Pares [scroll, tempo], interpolados em linha reta.
+// Scroll → tempo da animação: direto (1:1), sem pausas nem câmera lenta — a animação
+// sempre acompanha o dedo. Os textos só entram quando cada montagem fica completa.
 export const TIMELINE = [
-  [0, 0], // peças soltas no escuro (tópico 1)
-  [0.1, 0.085],
-  [0.36, 0.478], // caule + pétalas: flor completa
-  [0.46, 0.478], // pausa: tópico 2
-  [0.56, 0.61], // primeiros canteiros completos
-  [0.66, 0.61], // pausa: tópico 3
-  [0.86, 0.88], // caminho do jardim (etiquetas dos projetos) até o buquê
-  [1, 1], // buquê (tópico 4)
+  [0, 0],
+  [1, 1],
 ]
 export function animAt(s) {
   if (s <= 0) return 0

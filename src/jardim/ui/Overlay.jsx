@@ -6,20 +6,20 @@ import { scrollToProgress, scrollToTop } from '../lib/scroll.js'
 import { buildWhatsAppUrl } from '../../utils/whatsapp.js'
 import { setStyle, setText, setClass } from '../lib/dom.js'
 
-// Tópicos: [entra, sai] na posição do scroll (0..1). Cada um fica na pausa de uma montagem
-// completa (store.js → TIMELINE); durante as montagens a tela fica só com a animação.
+// Tópicos: [entra, sai] na posição do scroll (0..1). Cada um entra logo depois que uma
+// montagem fica completa (a animação não para: o texto só aparece por cima).
 const CHAPTERS = [
-  { id: 'void', a: -1, b: 0.095, step: '01' },
-  { id: 'flower', a: 0.375, b: 0.455, step: '02' },
-  { id: 'garden', a: 0.575, b: 0.655, step: '03' },
+  { id: 'void', a: -1, b: 0.085, step: '01' },
+  { id: 'flower', a: 0.472, b: 0.545, step: '02' },
+  { id: 'garden', a: 0.6, b: 0.67, step: '03' },
   { id: 'bouquet', a: 0.905, b: 2, step: '04' },
 ]
 const FADE = 0.02
 // p = destino do clique (scroll); from = a partir de quando o item fica ativo
 const NAV = [
   { label: 'Solto', p: 0, from: 0 },
-  { label: 'Flor', p: 0.415, from: 0.2 },
-  { label: 'Jardim', p: 0.615, from: 0.5 },
+  { label: 'Flor', p: 0.49, from: 0.2 },
+  { label: 'Jardim', p: 0.625, from: 0.55 },
   { label: 'Buquê', p: 0.97, from: 0.86 },
 ]
 
