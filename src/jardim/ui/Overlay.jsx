@@ -7,11 +7,12 @@ import { buildWhatsAppUrl } from '../../utils/whatsapp.js'
 import { setStyle, setText, setClass } from '../lib/dom.js'
 
 // Tópicos: [entra, sai] na posição do scroll (0..1). Cada um entra logo depois que uma
-// montagem fica completa (a animação não para: o texto só aparece por cima).
+// montagem fica completa (a animação não para: o texto só aparece por cima). O do jardim
+// fica no plano aberto dos primeiros canteiros; depois dele, a tela é das etiquetas.
 const CHAPTERS = [
   { id: 'void', a: -1, b: 0.085, step: '01' },
   { id: 'flower', a: 0.472, b: 0.545, step: '02' },
-  { id: 'garden', a: 0.6, b: 0.67, step: '03' },
+  { id: 'garden', a: 0.555, b: 0.6, step: '03' },
   { id: 'bouquet', a: 0.905, b: 2, step: '04' },
 ]
 const FADE = 0.02
@@ -19,7 +20,7 @@ const FADE = 0.02
 const NAV = [
   { label: 'Solto', p: 0, from: 0 },
   { label: 'Flor', p: 0.49, from: 0.2 },
-  { label: 'Jardim', p: 0.625, from: 0.55 },
+  { label: 'Jardim', p: 0.578, from: 0.54 },
   { label: 'Buquê', p: 0.97, from: 0.86 },
 ]
 
@@ -181,7 +182,7 @@ export default function Overlay({ projects }) {
             )}
             {failed ? (
               <span className="hero__status mono">
-                Não foi possível carregar as peças ·{' '}
+                Seu navegador não conseguiu abrir o 3D ·{' '}
                 <button className="hero__retry mono" onClick={() => location.reload()}>
                   Tentar de novo
                 </button>

@@ -21,8 +21,6 @@ export const state = {
     spin: 0,
     spinVel: 0,
     dragging: false,
-    turnAlpha: 0, // 1 = turntable renderizado no Blender; 0 = peças em Three.js
-    threeReady: false,
   },
   ready: false,
 }
