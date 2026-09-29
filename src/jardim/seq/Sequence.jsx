@@ -130,8 +130,7 @@ export default function Sequence({ onManifest }) {
       const now = performance.now()
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
-      // suaviza no espaço do scroll e só então converte em tempo da animação: as pausas
-      // e acelerações da TIMELINE continuam suaves
+      // suaviza o scroll e converte em tempo da animação
       state.sp = damp(state.sp, state.scroll, coarse ? 14 : 7, dt)
       state.p = animAt(state.sp)
       const pt = state.pointer
@@ -229,7 +228,7 @@ export default function Sequence({ onManifest }) {
         if (!el || !a || !b) continue
         // só depois que o canteiro do projeto terminou de montar
         const done = m.labelDone?.[i] ?? 0
-        const vis = lerp(a[2], b[2], k) * fadeEnd * smooth(invLerp(done, done + 0.012, P)) * smooth(invLerp(0.655, 0.675, state.sp)) // e depois do texto do jardim
+        const vis = lerp(a[2], b[2], k) * fadeEnd * smooth(invLerp(done, done + 0.012, P)) * smooth(invLerp(0.67, 0.685, state.sp)) // e depois do texto do jardim
         if (vis <= 0.001) {
           setStyle(el, 'opacity', '0')
           setStyle(el, 'pointerEvents', 'none')

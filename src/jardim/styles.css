@@ -77,8 +77,8 @@ html.lenis body {
 }
 .track {
   position: relative;
-  height: 1300vh;
-  height: 1300svh;
+  height: 1100vh;
+  height: 1100svh;
   pointer-events: none;
 }
 
@@ -143,7 +143,7 @@ html.lenis body {
 }
 
 /* ---------- revelação por linha ----------
-   Ao chegar na pausa, o tópico ganha .is-on e as linhas sobem em cascata (--i ordena).
+   Quando a montagem fica completa, o tópico ganha .is-on e as linhas sobem em cascata (--i ordena).
    Só transform e opacidade em transição: roda no compositor, sem trabalho por quadro. */
 .line {
   display: block;
