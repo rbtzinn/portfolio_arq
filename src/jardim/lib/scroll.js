@@ -57,12 +57,69 @@ export function setupScroll(track) {
 // posição de scroll (px) de um progresso da experiência (0..1), depois do hero
 const yOf = (p) => (st ? st.start + p * (st.end - st.start) : p * (document.documentElement.scrollHeight - window.innerHeight))
 
-const ease = (t) => 1 - Math.pow(1 - t, 4)
+// começa e termina devagar: sem o pico de velocidade inicial que o vídeo não acompanha
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
 
-export function scrollToProgress(p) {
-  lenis?.scrollTo(yOf(p), { duration: 2.2, easing: ease })
+// inverso de animAt (monótona): posição do scroll para um tempo da animação
+function scrollAt(P) {
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 28; i++) {
+    const mid = (lo + hi) / 2
+    if (animAt(mid) < P) lo = mid
+    else hi = mid
+  }
+  return hi
 }
 
+let trip = null
+const cancelTrip = () => {
+  if (!trip) return
+  trip.kill()
+  trip = null
+  state.navigating = false
+}
+if (typeof window !== 'undefined')
+  for (const ev of ['wheel', 'touchstart', 'keydown']) window.addEventListener(ev, cancelTrip, { passive: true })
+
+// Navegação por clique: a viagem é animada no TEMPO DA ANIMAÇÃO (não na posição do scroll),
+// então o vídeo passa num ritmo uniforme até o destino — sem ficar parado atravessando as
+// pausas e sem correr mais do que a busca de quadros acompanha (~80 quadros/s no pico).
+// Os textos das pausas do caminho ficam ocultos até chegar.
+function travel(targetS, then) {
+  if (!lenis) return
+  cancelTrip()
+  const from = state.p
+  const to = animAt(targetS)
+  const frames = (Math.abs(to - from) / 0.88) * 360
+  const duration = Math.min(4.2, Math.max(0.9, 0.6 + frames / 80))
+  const o = { u: 0 }
+  state.navigating = true
+  trip = gsap.to(o, {
+    u: 1,
+    duration,
+    ease: 'none',
+    onUpdate: () => {
+      const P = from + (to - from) * ease(o.u)
+      // na pausa de destino, a posição exata pedida (dentro dela o tempo quase não muda)
+      const s = o.u >= 1 ? targetS : scrollAt(P)
+      lenis.scrollTo(yOf(s), { immediate: true, force: true })
+    },
+    onComplete: () => {
+      trip = null
+      state.navigating = false
+      then?.()
+    },
+  })
+}
+
+export function scrollToProgress(p) {
+  travel(p)
+}
+
+// volta ao hero: desmonta até o começo e então sobe a primeira tela
 export function scrollToTop() {
-  lenis?.scrollTo(0, { duration: 2.2, easing: ease })
+  const done = () => lenis?.scrollTo(0, { duration: 1.1, easing: ease })
+  if (state.hero < 1) return done()
+  travel(0, done)
 }

@@ -103,7 +103,7 @@ export default function Overlay({ projects }) {
         if (!el) continue
         // entra/sai por classe: a animação do texto é uma transição CSS (transform e
         // opacidade, no compositor) — nada de estilo recalculado a cada quadro do scroll
-        const on = S >= c.a + FADE * 0.5 && S < c.b - FADE * 0.5 && (c.id !== 'void' || intro.v > 0.5)
+        const on = S >= c.a + FADE * 0.5 && S < c.b - FADE * 0.5 && (c.id !== 'void' || intro.v > 0.5) && !state.navigating
         setClass(el, 'is-on', on)
         if (on) scrim = 1
       }
