@@ -315,89 +315,6 @@ html.lenis body {
   opacity: 0.6;
   margin-top: 3px;
 }
-.meta {
-  display: flex;
-  gap: 22px;
-  text-align: right;
-  padding-top: 4px;
-}
-.meta b {
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-/* ---------- trilho de capítulos ---------- */
-.rail {
-  position: absolute;
-  right: var(--gut);
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  align-items: flex-end;
-}
-.rail__line {
-  position: absolute;
-  right: 3px;
-  top: 6px;
-  bottom: 6px;
-  width: 1px;
-  background: var(--line);
-}
-.rail__fill {
-  position: absolute;
-  inset: 0;
-  background: var(--fg);
-  transform-origin: top;
-  transform: scaleY(0);
-}
-.rail__dot {
-  position: relative;
-  background: none;
-  border: 0;
-  color: inherit;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 14px 0 0;
-  opacity: 0.45;
-  transition: opacity 0.4s;
-}
-.rail__dot::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1px solid var(--fg);
-  background: color-mix(in oklab, var(--fg) 0%, transparent);
-  transition: background 0.3s, transform 0.3s;
-}
-.rail__dot em {
-  font-family: var(--serif);
-  font-size: 17px;
-  font-style: italic;
-  max-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  transition: max-width 0.5s ease;
-}
-.rail__dot:hover,
-.rail__dot.is-active {
-  opacity: 1;
-}
-.rail__dot.is-active em,
-.rail__dot:hover em {
-  max-width: 90px;
-}
-.rail__dot.is-active::after {
-  background: var(--fg);
-  transform: scale(1.25);
-}
-
 /* ---------- capítulos ---------- */
 .ch {
   position: absolute;
@@ -673,13 +590,6 @@ html.lenis body {
   }
   .lede {
     font-size: 15px;
-  }
-  .meta {
-    flex-direction: column;
-    gap: 4px;
-  }
-  .rail {
-    display: none;
   }
   .brand__name {
     font-size: 13px;
